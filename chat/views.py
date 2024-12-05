@@ -19,10 +19,34 @@ class Friends(View):
         user_obj_data = UserSerialiser(user_obj)
 
         received_requests = FriendRequest.objects.filter(receiver=user_obj)
-        received_requests_data = json.loads(serializers.serialize('json', received_requests))
+
+        received_requests_list = []
+        for received in received_requests:
+            room = received.room
+            received_requests_list.append({
+                "id": received.pk, 
+                "sender": received.sender, 
+                "receiver": received.receiver, 
+                "room_id": room.pk,
+                "room_name": room.name,
+                "room_type": received.chat_type,
+                "status": received.status
+            })
 
         sent_requests = FriendRequest.objects.filter(sender=user_obj).order_by('-pk')
-        sent_requests_data = json.loads(serializers.serialize('json', sent_requests))
+
+        sent_requests_list = []
+        for sent in sent_requests:
+            room = sent.room
+            sent_requests_list.append({
+                "id": sent.pk, 
+                "sender": sent.sender, 
+                "receiver": sent.receiver, 
+                "room_id": room.pk,
+                "room_name": room.name,
+                "room_type": sent.chat_type,
+                "status": sent.status
+            })
 
         rooms = ChatRoom.objects.filter(Q(members=user_obj) & Q(type=False))
         
@@ -42,8 +66,8 @@ class Friends(View):
         group_chat_data = json.loads(serializers.serialize('json', group_chats))
 
         context = {
-            "received_requests": received_requests_data,
-            "sent_requests": sent_requests_data,
+            "received_requests": received_requests_list,
+            "sent_requests": sent_requests_list,
             "group_chats": group_chat_data,
             "friends": friend_rooms,
             "user": user_obj_data.data,
@@ -80,6 +104,8 @@ class ChatView(View):
         group_chats = ChatRoom.objects.filter(Q(members=user_obj) & Q(type=True))
         group_chat_data = json.loads(serializers.serialize('json', group_chats))
 
+        room = ChatRoom.objects.get(pk=room_id)
+
         if user_obj in room.members.all():
             context = {
                 "group_chats": group_chat_data,
@@ -88,6 +114,6 @@ class ChatView(View):
                 "username": user
             }
 
-            return render(request, "home.html", context)
+            return render(request, "chat.html", context)
 
         return HttpResponseForbidden()
