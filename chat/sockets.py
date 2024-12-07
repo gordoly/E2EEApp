@@ -2,6 +2,7 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.db.models import Q
+from django.utils import timezone
 
 user_connections = {}
 user_rooms = {}
@@ -143,12 +144,97 @@ class ChatConsumer(AsyncWebsocketConsumer):
                                 }
                             )
 
-                    await self.send(text_data=json.dumps({"type": "response", "content": [room.pk, username, group_name, room_type]}))
+                await self.send(text_data=json.dumps({"type": "response", "content": [room.pk, username, group_name, room_type]}))
+
+            elif message["type"] == "request_res":
+                new_status = message["content"]["status"]
+                request_id = message["content"]["request_id"]
+        
+                if new_status == 0 or new_status == 1:
+                    request = await self.get_friend_request(request_id)
+                    receiver = await self.get_friend_request_receiver(request)
+                    if receiver.username == session_username:
+                        request.status = new_status
+                        await self.save_friend_request(request)
+                        
+                        sender = await self.get_friend_request_sender(request)
+                        room = await self.get_friend_request_room(request)
+                        if sender.username in user_connections:
+                            channel_name = user_connections.get(sender.username)
+                            if channel_name:
+                                await self.channel_layer.send(
+                                    channel_name,
+                                    {
+                                        "type": "request_update",
+                                        "content": [room.pk, session_username, new_status, room.name, room.type]
+                                    }
+                                )
+
+                        if new_status == 1:
+                            await self.add_member_to_room(room, receiver)
+
+            elif message["type"] == "remove_room_member":
+                room_id = message["content"]["room_id"]
+                room = await self.get_chat_room_by_id(room_id)
+                await self.remove_member_from_room(room, user)
+
+            elif message["type"] == "join_room":
+                room_id = message["content"]["room_id"]
+                room = await self.get_chat_room_by_id(int(room_id))
+                members = await self.get_members_of_room(room)
+                if user in members:
+                    self.room_group_name = str(room_id)
+                    await self.channel_layer.group_add(
+                        self.room_group_name,
+                        self.channel_name
+                    )
+
+            elif message["type"] == "send_msg":
+                encrypted_msg = message["content"]["message"]
+                room_id = message["content"]["room_id"]
+                receiver = message["content"]["receiver"]
+                date_time = timezone.now().isoformat()
+                
+                room = await self.get_chat_room_by_id(room_id)
+                members = await self.get_members_of_room(room)
+
+                if receiver not in user_connections:
+                    receiver_obj = await self.get_user_by_username(receiver)
+                    await self.create_message(user, receiver_obj, encrypted_msg, room, date_time)
+                else:
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            "type": "new_msg",
+                            "content": [session.get("username"), room_id, encrypted_msg, date_time]
+                        }
+                    )
 
     @database_sync_to_async
     def get_user_by_username(self, username):
         from users.models import AccountUser
         return AccountUser.objects.get(username=username)
+    
+    @database_sync_to_async
+    def get_friend_request(self, pk):
+        from .models import FriendRequest
+        return FriendRequest.objects.get(pk=pk)
+    
+    @database_sync_to_async
+    def get_friend_request_sender(self, friend_request):
+        return friend_request.sender
+    
+    @database_sync_to_async
+    def get_friend_request_receiver(self, friend_request):
+        return friend_request.receiver
+    
+    @database_sync_to_async
+    def get_friend_request_room(self, friend_request):
+        return friend_request.room
+    
+    @database_sync_to_async
+    def save_friend_request(self, friend_request):
+        friend_request.save()
     
     @database_sync_to_async 
     def filter_friend_request(self, sender, receiver):
@@ -159,6 +245,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def retrieve_friend_rooms(self, sender, receiver):
         from .models import ChatRoom
         return list(ChatRoom.objects.filter(Q(members=sender) & Q(type=False) & Q(members=receiver)))
+    
+    @database_sync_to_async
+    def get_chat_room_by_id(self, room_id):
+        from .models import ChatRoom
+        return ChatRoom.objects.get(pk=room_id)
     
     @database_sync_to_async
     def create_chat_room(self, group_name, room_type, user):
@@ -175,11 +266,39 @@ class ChatConsumer(AsyncWebsocketConsumer):
         room.members.add(new_member)
         room.save()
 
+    @database_sync_to_async
+    def remove_member_from_room(self, room, member):
+        room.members.remove(member)
+        room.save()
+
+    @database_sync_to_async
+    def get_members_of_room(self, room):
+        members = []
+        for member in room.members.all():
+            members.append(member.username)
+        return members
+    
+    @database_sync_to_async
+    def create_message(self, user, receiver, encrypted_msg, room, date_time):
+        from .models import Message
+        return Message.objects.create(sender=user, receiver=receiver, content=encrypted_msg, room=room, date_time=date_time)
+    
+    @database_sync_to_async
+    def get_room_owner(self, room):
+        return room.owner
+
     async def broadcast(self, event):
         online_users = event["content"]
         await self.send(text_data=json.dumps({
             'type': 'broadcast',
             'content': online_users
+        }))
+    
+    async def request_update(self, event):
+        content = event["content"]
+        await self.send(text_data=json.dumps({
+            'type': 'request_update',
+            'content': content
         }))
 
     async def new_request(self, event):
@@ -187,4 +306,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'new_request',
             'content': content
+        }))
+    
+    async def room_update(self, event):
+        content = event["content"]
+        await self.send(text_data=json.dumps({
+            'type': 'room_update',
+            'content': content
+        }))
+
+    async def new_msg(self, event):
+        content = event["content"]
+        await self.send(text_data=json.dumps({
+            'type': 'new_msg',
+            'content': content
+        }))
+
+    async def update_members(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'update_members'
         }))
