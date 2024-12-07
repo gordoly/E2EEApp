@@ -1,0 +1,442 @@
+{% extends 'base.html' %}
+
+{% load static %}
+
+{% block content %}
+
+<div class="container">
+    <ul class="nav-bar">
+        <li class="active"><a href="/friends">Home</a></li>
+        <li class="end-section"><a href="/auth/logout">Logout</a></li>
+        
+        <div id="friendsList">
+            <li class="no-hover">Friends</li>
+            {% if friends %}
+                {% for friend in friends %}
+                    <li id="room_{{ friend.room_id }}" onclick="window.location.href='/chat/{{ friend.room_id }}'">
+                        <p style="display: inline;">{{ friend.username }}</p>
+                        <span class="status offline" id="status_{{ friend.username }}">Offline</span>
+                        <br>
+                        <button class="danger" onclick="removeFriend(event, '{{ friend.room_id }}')">Remove Friend</button>
+                        <br>
+                    </li>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+        <div id="groupsList">
+            <li class="no-hover">Groups</li>
+            {% if group_chats %}
+                {% for group in group_chats %}
+                    <li class="group-list" id="room_{{ group.pk }}" onclick="window.location.href='/chat/{{ group.pk }}'">
+                        <p style="display: inline;">{{ group.fields.name }}</p>
+                        <br>
+                        <button class="danger" onclick="removeFriend(event, '{{ group.pk }}')">Leave Chat</button>
+                        <br>
+                    </li>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+        <li class="bottom-element no-hover">{{ user.username }}</li>
+    </ul>
+
+    <main>
+        <ul class="header">
+            <li onclick="clickFriendRequests()">Friend Requests</li>
+            <li onclick="clickGroupChat()">Create a Group Chat</li>
+        </ul>
+        
+        <section class="requests" id="friends">
+            <h3>Send Friend Request</h3>
+            <form id="sendFriendRequestForm">
+                <label for="friendUsername">Username:</label>
+                <br>
+                <input type="text" id="friendUsername" name="friend" placeholder="Enter username">
+                <button type="button" onclick="sendFriendRequest()">Send Request</button>
+            </form>
+
+            <h3>Requests</h3>
+            <ul id="receivedRequestsList">
+                {% if received_requests %}
+                    {% for request in received_requests %}
+                        {% if request.status == -1 %}
+                            <li id="request_{{ request.id }}">
+                                {% if not request.room_type %}
+                                    {{ request.sender }} wants to befriend you
+                                {% else %}
+                                    {{ request.sender }} wants to invite you to join the group chat {{ request.room_name }}
+                                {% endif %}
+                                {% if not request.room_type %}
+                                    <button onclick="acceptRequest(event, '{{ request.sender }}', '{{ request.id }}', '{{ request.room_id }}')">
+                                        Accept
+                                    </button>
+                                {% else %}
+                                    <button onclick="acceptRequestGroup(event, '{{ request.sender }}', '{{ request.id }}', '{{ request.room_id }}', '{{ request.room_name }}')">
+                                        Accept
+                                    </button>
+                                {% endif %}
+                                <button onclick="declineRequest(event, '{{ request.sender }}', '{{ request.id }}')">
+                                    Decline
+                                </button>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+            </ul>
+
+            <h3>Sent Requests</h3>
+            <ul id="sentRequestsList">
+                {% if sent_requests %}
+                    {% for request in sent_requests %}
+                        {% if request.status == -1 %}
+                            <li id="waiting_request_{{ request.id }}">
+                                {% if request.room_type %}
+                                    Request to join {{ request.room_name }} sent to {{ request.receiver }}
+                                {% else %}
+                                    Friend Request sent to {{ request.receiver }}
+                                {% endif %}
+                            </li>
+                        {% elif request.fields.status == 0 %}
+                            <li id="waiting_request_{{ request.id }}">
+                                {% if request.room_type %}
+                                    Request to join group chat {{ request.room_name }} sent to {{ request.receiver }} was declined
+                                {% else %}
+                                    Friend request sent to {{ request.receiver }} was declined
+                                {% endif %}
+                            </li>
+                        {% endif %}
+                     {% endfor %}
+                {% endif %}
+            </ul>
+        </section>
+
+        <section class="group-chats" style="display: none; padding: 20px; margin-top: 20px;" id="group">
+            <h3>Create a new Group Chat</h3>
+            <form id="createGroupChatForm">
+                <label>Name of Group Chat:</label>
+                <br>
+                <input type="text" id="groupName" name="groupName" placeholder="Enter Group Chat Name">
+                <br>
+                <label>Add users to the group chat:</label>
+                <br>
+                <input type="text" id="userToAdd" name="userToAdd" placeholder="Enter a username">
+                <button onclick="addUser(event)">Add user</button>
+                <br>
+                <br>
+                <label>Users in the group chat:</label>
+                <ul id="groupUsers"></ul>
+                <button type="button" onclick="createGroupChat()">Send Request</button>
+            </form>
+        </section>
+    </main>
+</div>
+
+<script>
+    let socket = new WebSocket('/ws/chat/');
+    
+    let username = "{{ user.username }}";
+
+    let onlineUsers;
+
+    function clickFriendRequests() {
+        const friends = document.getElementById("friends");
+        const group = document.getElementById("group");
+        friends.style.display = "block";
+        group.style.display = "none";
+    }
+
+    function clickGroupChat() {
+        const friends = document.getElementById("friends");
+        const group = document.getElementById("group");
+        friends.style.display = "none";
+        group.style.display = "block";
+    }
+
+    function addUser(event) {
+        event.preventDefault();
+        
+        const users = document.getElementById("groupUsers");
+        const userInput = document.getElementById("userToAdd");
+        
+        if (userInput.value) {
+            const user = document.createElement('li');
+
+            const p = document.createElement('p');
+            p.textContent = userInput.value;
+            p.style = "display: inline";
+
+            user.appendChild(p);
+
+            const button = document.createElement('button');
+            button.textContent = "Remove"
+            button.style.marginLeft = "10px";
+            button.onclick = function() {
+                users.removeChild(user);
+            }
+
+            user.appendChild(button);
+            users.appendChild(user);
+
+            userInput.value = "";
+        }
+    }
+
+    function removeFriend(event, room_id) {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
+
+            room = document.getElementById(`room_${room_id}`);
+            if (room) {
+                room.remove();
+            }
+        }
+        event.stopPropagation();
+    }
+    
+    function acceptRequest(event, sender, requestId, roomId) {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({"type": "request_res", "content": {"request_id": parseInt(requestId), "status": 1}}));
+
+            var receivedRequest = document.getElementById(`request_${requestId}`);
+            if (receivedRequest) {
+                receivedRequest.remove();
+            }
+
+            var friendsList = document.getElementById('friendsList');
+
+            friendsList.innerHTML += `<li id='room_${roomId}' onclick="window.location.href='/chat/${roomId}'"">
+                <p style="display: inline;"></p>
+                <span class="status offline" id="status_${sender}">Offline</span>
+                <br>
+                <button class="danger" onclick="removeFriend(event, '${roomId}')">Remove Friend</button>
+                <br>
+            </li>`;
+
+            const room = document.getElementById(`room_${roomId}`);
+            room.querySelector('p').textContent = sender;
+        }
+    }
+
+    function acceptRequestGroup(event, sender, requestId, roomId, roomName) {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({"type": "request_res", "content": {"request_id": parseInt(requestId), "status": 1}}));
+
+            var receivedRequest = document.getElementById(`request_${requestId}`);
+            if (receivedRequest) {
+                receivedRequest.remove();
+            }
+            
+            var groupList = document.getElementById('groupsList');
+
+            groupList.innerHTML += `<li class="group-list" id="room_${roomId}" onclick="window.location.href='/chat/${roomId}'">
+                    <p style="display: inline;"></p>
+                    <br>
+                    <button class="danger" onclick="removeFriend(event, '${roomId}')">Leave Chat</button>
+                    <br>
+                </li>`;
+
+            const room = document.getElementById(`room_${roomId}`);
+            room.querySelector('p').textContent = roomName;
+        }
+    }
+
+    function declineRequest(event, sender, requestId) {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({"type": "request_res", "content": {"request_id": parseInt(requestId), "status": 0}}));
+
+            var receivedRequest = document.getElementById(`request_${requestId}`);
+            if (receivedRequest) {
+                receivedRequest.remove();
+            }
+        }
+    }
+
+    async function sendFriendRequest() {
+        if (socket.readyState === WebSocket.OPEN) {
+            const friendUsername = document.getElementById('friendUsername').value;
+            
+            socket.send(JSON.stringify({"type": "create_room", "content": {
+                "group_name": username + "," + friendUsername, 
+                "receivers": [friendUsername], 
+                "room_type": false
+            }}));
+
+            document.getElementById('friendUsername').value = "";
+        }
+    }
+
+    function createGroupChat() {
+        if (socket.readyState === WebSocket.OPEN) {
+            const groupChatName = document.getElementById('groupName').value;
+            const groupChatUsers = document.getElementById('groupUsers');
+            const userListItems = groupChatUsers.getElementsByTagName("li");
+
+            const users = [];
+            for (let item of userListItems) {
+                users.push(item.querySelector("p").textContent);
+            }
+
+            const usersElement = document.getElementById("groupUsers");
+            usersElement.innerHTML = "";
+            clickFriendRequests();
+            
+            socket.send(JSON.stringify({"type": "create_room", "content": {
+                "group_name": groupChatName, 
+                "receivers": users, 
+                "room_type": true,
+            }}));
+
+            document.getElementById('groupName').value = "";
+        }
+    }
+
+    socket.onmessage = function(event) {
+        const message = JSON.parse(event.data);
+
+        if (message["type"] === 'response') {
+            if (typeof(message["content"]) === "object") { 
+                const roomId = message["content"][0];
+                const receiver = message["content"][1];
+                const groupName = message["content"][2];
+                const roomType = message["content"][3];
+
+                const sentRequests = document.getElementById("sentRequestsList");
+
+                if (roomType) {
+                    sentRequests.innerHTML = `<li id="waiting_request_${roomId}"></li>` + sentRequests.innerHTML;
+                    const newRequest = document.getElementById(`waiting_request_${roomId}`);
+                    newRequest.textContent = `Request to join group chat ${groupName} sent to ${receiver}`;
+                }
+                else {
+                    sentRequests.innerHTML = `<li id="waiting_request_${roomId}"></li>` + sentRequests.innerHTML;
+                    const newRequest = document.getElementById(`waiting_request_${roomId}`);
+                    newRequest.textContent = `Friend Request sent to ${receiver}`;
+                }
+            }
+            else {
+                alert(message["content"]);
+            }
+        }
+        
+        else if (message["type"] === 'new_request') {
+            const sender = message["content"][0]
+            const requestId = message["content"][1];
+            const roomId = message["content"][2];
+            const roomName = message["content"][3];
+            const roomType = message["content"][4];
+
+            if (!roomType) {
+                const receivedRequestsList = document.getElementById('receivedRequestsList');
+
+                receivedRequestsList.innerHTML += `
+                    <li id="request_${requestId}">
+                        <p style="display: inline-block"></p>
+                        <button onclick="acceptRequest(event, '${sender}', '${requestId}', '${roomId}')">
+                            Accept
+                        </button>
+                        <button onclick="declineRequest(event, '${sender}', '${requestId}')">
+                            Decline
+                        </button>
+                    </li>`;
+
+                const newRequest = document.getElementById(`request_${requestId}`);
+                newRequest.querySelector("p").textContent = `${sender} wants to befriend you`;
+            }
+            else {
+                const receivedRequestsList = document.getElementById('receivedRequestsList');
+
+                receivedRequestsList.innerHTML += `
+                    <li id="request_${requestId}">
+                        <p style="display: inline-block"></p>
+                        <button onclick="acceptRequestGroup(event, '${sender}', '${requestId}', '${roomId}', '${roomName}')">
+                            Accept
+                        </button>
+                        <button onclick="declineRequest(event, '${sender}', '${requestId}')">
+                            Decline
+                        </button>
+                    </li>`;
+
+                const newRequest = document.getElementById(`request_${requestId}`);
+                newRequest.querySelector("p").textContent = `${sender} wants to invite you to join the group chat ${roomName}`; 
+            }
+        }
+
+        else if (message["type"] === "request_update") {
+            const roomId = message["content"][0];
+            const sender = message["content"][1];
+            const newStatus = message["content"][2];
+            const groupName = message["content"][3];
+            const roomType = message["content"][4];
+
+            const request = document.getElementById(`waiting_request_${roomId}`);
+
+            if (newStatus === 1) {
+                if (request) {
+                    request.remove()
+                }
+
+                if (!roomType) {
+                    const friends = document.getElementById("friendsList");
+                    friends.innerHTML += `<li id="room_${roomId}" onclick="window.location.href='/chat/${roomId}'">
+                        <p style="display: inline;"></p>
+                        <span class="status offline" id="status_${sender}">Offline</span>
+                        <br>
+                        <button class="danger" onclick="removeFriend(event, '${roomId}')">Remove Friend</button>
+                        <br>
+                    </li>`;
+
+                    const friend = document.getElementById(`room_${roomId}`);
+                    friend.querySelector("p").textContent = `${sender}`
+                }
+                else {
+                    const groups = document.getElementById("groupsList");
+                    groups.innerHTML += `<li class="group-list" id="room_${roomId}" onclick="window.location.href='/chat/${roomId}'">
+                        <p style="display: inline;"></p>
+                        <br>
+                        <button class="danger" onclick="removeFriend(event, '${roomId}')">Leave Chat</button>
+                        <br>
+                    </li>`;
+                    
+                    const group = document.getElementById(`room_${roomId}`);
+                    group.querySelector("p").textContent = `${groupName}`;
+                }
+
+                onlineUsers.forEach(function(user) {
+                    var statusElement = document.getElementById('status_' + user);
+                    if (statusElement) {
+                        statusElement.classList.replace('offline', 'online');
+                        statusElement.textContent = 'Online';
+                    }
+                });
+            }
+            else {
+                if (request.textContent.includes("group chat")) {
+                    request.textContent = `Request to join group chat ${groupName} sent to ${sender} was declined`;
+                }
+                else {
+                    request.textContent = `Friend request sent to ${sender} was declined`;
+                }
+            }
+        }
+
+        else if (message["type"] === "broadcast") {
+            onlineUsers = message["content"];
+
+            document.querySelectorAll('.status').forEach(function(status) {
+                status.classList.replace('online', 'offline');
+                status.textContent = 'Offline';
+            });
+
+            onlineUsers.forEach(function(user) {
+                var statusElement = document.getElementById('status_' + user);
+                if (statusElement) {
+                    statusElement.classList.replace('offline', 'online');
+                    statusElement.textContent = 'Online';
+                }
+            });
+        }
+    };
+</script>
+
+{% endblock %}
