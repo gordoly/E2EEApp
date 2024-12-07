@@ -1,0 +1,52 @@
+body {
+    background-color: white; 
+    color: black; 
+    line-height: 1.6; 
+    padding: 0;
+    margin: 0;
+    height: 100vh;
+    overflow-x: hidden;
+}
+
+form {
+    margin-top: 10px;
+}
+
+.login-signup {
+    text-align: center;
+}
+
+input[type="text"], input[type="submit"], button {
+    padding: 10px;
+    margin-top: 5px;
+}
+
+.login-signup > input {
+    width: 30%;
+    height: 30px;
+    font-size: 20px;
+    text-align: center;
+}
+
+input[type="text"] {
+    width: calc(100% - 150px);
+}
+
+input[type="submit"], button {
+    background-color: #5783db; 
+    color: white; 
+    border: none; 
+    cursor: pointer; 
+    width: auto; 
+    border-radius: 12px;
+}
+
+.login-signup > button {
+    width: 20%;
+    height: 50px;
+}
+
+a {
+    color: black; 
+    text-decoration: none; 
+}
