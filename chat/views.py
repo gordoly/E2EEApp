@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from django.http import Http404, HttpResponseForbidden, JsonResponse
+from django.http import Http404, HttpResponseForbidden, JsonResponse, HttpResponseRedirect
 from django.views import View
 from django.core import serializers
 from rest_framework.views import APIView
@@ -177,3 +177,10 @@ class SavePublicKeyView(APIView):
             return Response({"message": "Public key saved successfully"}, status=200)
         
         return Response({"message": "Permission Denied"}, status=403)
+    
+class RedirectView(View):
+    def get(self, request):
+        if "username" in request.session:
+            return HttpResponseRedirect("/friends/")
+        else:
+            return HttpResponseRedirect("/auth/signin/")

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import Friends, ChatView, ChatHistoryView, SavePublicKeyView, RoomMembersView
+from .views import Friends, ChatView, ChatHistoryView, SavePublicKeyView, RoomMembersView, RedirectView
 
 urlpatterns = [
     path('friends/', Friends.as_view(), name="friends"),
@@ -8,4 +8,5 @@ urlpatterns = [
     path('history/', ChatHistoryView.as_view(), name="history"),
     path('key/save/', SavePublicKeyView.as_view(), name="key"),
     path('members/<int:room_id>/', RoomMembersView.as_view(), name="home"),
+    path('', RedirectView.as_view(), name="redirect")
 ]
