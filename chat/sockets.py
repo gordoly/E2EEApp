@@ -108,10 +108,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             await self.send(text_data=json.dumps({"type": "response", "content": f"User {receivers[0]} does not exist"}))
                             return
                         
-                else:
-                    if not message["content"]["group_name"]:
-                        await self.send(text_data=json.dumps({"type": "response", "content": f"A group name must be provided"}))
-                        return
+                elif not message["content"]["group_name"]:
+                    await self.send(text_data=json.dumps({"type": "response", "content": f"A group name must be provided"}))
+                    return
 
                 for username in receivers:
                     try:
@@ -182,12 +181,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 room_id = message["content"]["room_id"]
                 room = await self.get_chat_room_by_id(int(room_id))
                 members = await self.get_members_of_room(room)
-                if user in members:
-                    self.room_group_name = str(room_id)
-                    await self.channel_layer.group_add(
-                        self.room_group_name,
-                        self.channel_name
-                    )
+                if session_username in members:
+                    user_rooms[session_username] = int(room_id)
 
             elif message["type"] == "send_msg":
                 encrypted_msg = message["content"]["message"]
@@ -197,18 +192,22 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 
                 room = await self.get_chat_room_by_id(room_id)
                 members = await self.get_members_of_room(room)
+                receiver_obj = await self.get_user_by_username(receiver)
 
-                if receiver not in user_connections:
-                    receiver_obj = await self.get_user_by_username(receiver)
-                    await self.create_message(user, receiver_obj, encrypted_msg, room, date_time)
-                else:
-                    await self.channel_layer.group_send(
-                        self.room_group_name,
-                        {
-                            "type": "new_msg",
-                            "content": [session.get("username"), room_id, encrypted_msg, date_time]
-                        }
-                    )
+                if session_username in members:
+                    if receiver not in user_rooms:
+                        await self.create_message(user, receiver_obj, encrypted_msg, room, date_time)
+                    else:
+                        if receiver in user_connections:
+                            channel_name = user_connections.get(receiver)
+                            if channel_name:
+                                await self.channel_layer.send(
+                                    channel_name,
+                                    {
+                                        "type": "new_msg",
+                                        "content": [session_username, room_id, encrypted_msg, date_time]
+                                    }
+                                )
 
     @database_sync_to_async
     def get_user_by_username(self, username):
@@ -307,22 +306,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'type': 'new_request',
             'content': content
         }))
-    
-    async def room_update(self, event):
-        content = event["content"]
-        await self.send(text_data=json.dumps({
-            'type': 'room_update',
-            'content': content
-        }))
 
     async def new_msg(self, event):
         content = event["content"]
         await self.send(text_data=json.dumps({
             'type': 'new_msg',
             'content': content
-        }))
-
-    async def update_members(self, event):
-        await self.send(text_data=json.dumps({
-            'type': 'update_members'
         }))
