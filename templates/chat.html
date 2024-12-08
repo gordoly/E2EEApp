@@ -1,0 +1,334 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<div class="login-signup" id="getPassword">
+    <p>Before preceding please enter your password again:</p>
+    <input id="password"  type="password"/>
+    <br>
+    <br>
+    <button onclick="verifyPassword()">Continue</button>
+</div>
+
+<div class="container" style="display: none" id="chatContainer">
+    <ul class="nav-bar" style="margin-right: 3%;">
+        <li class="active"><a href="/friends">Home</a></li>
+        <li class="end-section"><a href="/auth/logout">Logout</a></li>
+        
+        <div id="friendsList">
+            <li class="no-hover">Friends</li>
+            {% if friends %}
+                {% for friend in friends %}
+                    <li id="room_{{ friend.room_id }}" onclick="window.location.href='/chat/{{ friend.room_id }}'">
+                        <p style="display: inline;">{{ friend.username }}</p>
+                        <span class="status offline" id="status_{{ friend.username }}">Offline</span>
+                        <br>
+                        <button class="danger" onclick="removeFriend(event, '{{ friend.room_id }}')">Remove Friend</button>
+                        <br>
+                    </li>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+        <div id="groupsList">
+            <li class="no-hover">Groups</li>
+            {% if group_chats %}
+                {% for group in group_chats %}
+                    <li class="group-list" id="room_{{ group.pk }}" onclick="window.location.href='/chat/{{ group.pk }}'">
+                        <p style="display: inline;">{{ group.fields.name }}</p>
+                        <br>
+                        <button class="danger" onclick="removeFriend(event, '{{ group.pk }}')">Leave Chat</button>
+                        <br>
+                    </li>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+        <li class="bottom-element no-hover">{{ username }}</li>
+    </ul>
+
+    <main style="margin-right: 4%;">
+        <section id="messageBox"></section>
+
+        <section id="inputBox">
+            <input id="writeMessage" placeholder="Send a message">
+            <button onclick="send()" id="sendButton">Send</button>
+        </section>
+    </main>
+</div>
+
+<script src="{% static 'js/libs/crypto.js' %}"></script>
+<script>
+    let room_id = "{{ room_id }}";
+
+    // when the user presses the "Enter" key, send whatever message the user wrote
+    document.getElementById("writeMessage").addEventListener("keyup", function(e) {
+        if (e.key === "Enter") {
+            send();
+        }
+    });
+    
+    let username = "{{ username }}";
+
+    let salt;
+    let iv;
+    let privateKey;
+    let pwdDerivedKey;
+
+    let socket = new WebSocket('/ws/chat/');
+
+    // when the user closes the page, emit a leave event to socket server
+    window.addEventListener('beforeunload', () => {
+        socket.close();
+    });
+
+    socket.onmessage = async function(event) {
+        const message = JSON.parse(event.data);
+
+        if (message["type"] === "new_msg") {
+            const sender = message["content"][0];
+            const msg = new Uint8Array(message["content"][2]);
+            
+            try {
+                const decryptedContent = await decryptMessage(privateKey, msg);
+                addMessage(sender, decryptedContent);
+
+                const db = await openDatabase();
+
+                const indexDBMessages = await getData(db, "messages");
+                let msgHistory = [];
+
+                if (indexDBMessages.length > 0) {
+                    msgHistory = await decryptMsgHistory(indexDBMessages[0]["content"], pwdDerivedKey, iv);
+                }
+
+                msgHistory.push({"sender": sender, "receiver": username, "content": decryptedContent, "room_id": room_id});
+
+                const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
+                await setData(db, "messages", {"id": 1, "content": encryptedMsgHistory});
+            }
+            catch {
+                addMessage("", `A message from ${sender} could not be decrypted successfully.`);
+            }
+        }
+
+        else if (message["type"] === "broadcast") {
+            const online_users = message["content"];
+
+            document.querySelectorAll('.status').forEach(function(status) {
+                status.classList.replace('online', 'offline');
+                status.textContent = 'Offline';
+            });
+
+            online_users.forEach(function(user) {
+                var statusElement = document.getElementById('status_' + user);
+                if (statusElement) {
+                    statusElement.classList.replace('offline', 'online');
+                    statusElement.textContent = 'Online';
+                }
+            });
+        }
+    }
+
+    // scroll to the bottom of the messages
+    function scrollToBottom() {
+        const messageBox = document.getElementById("messageBox");
+        messageBox.scrollTop = messageBox.scrollHeight;
+    }
+
+    // send password to server to verify that it belongs to the user
+    async function verifyPassword() {
+        const password = document.getElementById("password").value;
+
+        const res = await axios.post("/auth/verify_password/", {
+            "password": password
+        });
+
+        if (res.status === 200) {            
+            document.getElementById("chatContainer").style.display = "flex";
+            document.getElementById("getPassword").style.display = "none";
+
+            const db = await openDatabase();
+            const keyData = await getData(db, "keys");
+
+            // use the key data if saved in IndexedDB, otherwise generate new ones
+            if (keyData.length === 0) {
+                salt = generateRandomBytes();
+                iv = generateRandomBytes();
+            }
+            else {
+                for (let data of keyData) {
+                    if (data["type"] === "salt") {
+                        salt = data["content"];
+                    } else if (data["type"] === "iv") {
+                        iv = data["content"];
+                    } else if (data["type"] === "private") {
+                        privateKey = data["content"];
+                    }
+                }
+            }
+
+            // imports the user's password for use by KDF
+            const keyMaterial = await crypto.subtle.importKey(
+                "raw", 
+                new TextEncoder().encode(password),
+                { name: 'PBKDF2' },
+                false, 
+                ["deriveBits", "deriveKey"]
+            );
+            
+            // derive a key from the user's password
+            pwdDerivedKey =  await crypto.subtle.deriveKey(
+                {
+                    name: "PBKDF2",
+                    salt: salt,
+                    iterations: 100000,
+                    hash: "SHA-256",
+                },
+                keyMaterial,
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"],
+            );
+
+            const indexDBMessages = await getData(db, "messages");
+            let msgHistory = [];
+
+            if (indexDBMessages.length > 0) {
+                msgHistory = await decryptMsgHistory(indexDBMessages[0]["content"], pwdDerivedKey, iv);
+            }
+            
+            const messages_res = await axios.get("/history");
+            const messages = messages_res.data["messages"];
+
+            if (Object.keys(messages).length > 0) {            
+                privateKey = await decryptRSAKey(privateKey, pwdDerivedKey, iv);
+
+                for (let message of messages) {
+                    try {
+                        const msg = await decryptMessage(privateKey, new Uint8Array(JSON.parse(message["content"])));
+                        message["content"] = msg;
+                        msgHistory.push(message);
+                    }
+                    catch {
+                        
+                    }
+                }
+
+                const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
+                await setData(db, "messages", {"id": 1, "content": encryptedMsgHistory});
+            }
+
+            for (let message of msgHistory) {
+                addMessage(message["sender"], message["content"]);
+            }
+
+            const keyPair = await generateKeyPair();
+            const encryptedPrivate = await encryptRSAKey(keyPair.privateKey, pwdDerivedKey, iv);
+
+            privateKey = keyPair.privateKey;
+            
+            await setData(db, "keys", {"id": 1, "type": "salt", "content": salt});
+            await addData(db, "keys", {"id": 2, "type": "iv", "content": iv});
+            await addData(db, "keys", {"id": 3, "type": "private", "content": encryptedPrivate});
+
+            const exported = await crypto.subtle.exportKey(
+                'spki',
+                keyPair.publicKey
+            );
+            
+            await axios.post("/key/save/", {
+                "public_key": Array.from(new Uint8Array(exported))
+            });
+
+            await join_room();
+
+            scrollToBottom();
+        }
+    }
+
+    function removeFriend(event, room_id) {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
+        }
+        room = document.getElementById(`room_${room_id}`);
+        if (room) {
+            room.remove();
+        }
+        event.stopPropagation();
+    }
+
+    // we'll send the message to the server by emitting a "send" event
+    async function send() {
+        const messageElement = document.getElementById("writeMessage");
+        const message = messageElement.value;
+        messageElement.value = "";
+
+        if (message.trim()) {
+            const res = await axios.get(`/members/${room_id}`);
+            const members = res.data["message"];
+
+            if (res.status === 200) {
+                for (let member of members) {
+                    if (member.public_key) {
+                        const pkMaterial = new Uint8Array(member.public_key);
+                        const publicKey = await crypto.subtle.importKey(
+                            'spki',
+                            pkMaterial,
+                            {
+                                name: 'RSA-OAEP',
+                                hash: 'SHA-256'
+                            },
+                            true,
+                            ['encrypt']
+                        );
+
+                        const encrypted = await ecryptMessage(publicKey, message);
+                        socket.send(JSON.stringify({"type": "send_msg", "content": {"message": Array.from(new Uint8Array(encrypted)), "receiver": member.username, "room_id": room_id}}));
+                    }
+                }
+
+                scrollToBottom();
+            }
+        }
+    }
+
+    // we emit a join room event to the server to join the room specified in url
+    async function join_room() {
+        socket.send(JSON.stringify({"type": "join_room", "content": {"room_id": room_id}}));
+    }
+
+    // function to add a message to the message box once a message has been received and decrypted
+    function addMessage(sender, message) {
+        const messageBox = document.getElementById("messageBox");
+        
+        const msgContainer = document.createElement("div");
+
+        const msgElement = document.createElement("p");
+        msgElement.textContent = message;
+        msgElement.className = "message";
+
+        if (sender === username) {
+            msgContainer.style.float = "left";
+            msgElement.classList.add("sender");
+            sender = "You";
+        }
+        else {
+            msgContainer.style.marginLeft = "auto";
+            msgElement.classList.add("receiver");
+        }
+        
+        const senderElement = document.createElement("h4");
+        senderElement.textContent = sender;
+
+        const breakElement = document.createElement("br");
+        
+        msgContainer.append(senderElement);
+        msgContainer.append(msgElement);
+
+        messageBox.append(msgContainer);
+        messageBox.append(breakElement);
+    }
+</script>
+
+{% endblock %}
