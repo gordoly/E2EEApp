@@ -1,6 +1,5 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import HttpResponseRedirect
 from django.views import View
 from django.shortcuts import render, redirect
 
@@ -34,6 +33,22 @@ class LoginView(APIView):
         
         except AccountUser.DoesNotExist:
             return Response({'message': 'Account credentials could not be found'}, status=403)
+        
+class VerifyPassword(APIView):
+    def post(self, request):
+        if "username" in request.session:
+            username = request.session["username"]
+            password = request.data["password"]
+
+            user = AccountUser.objects.get(username=username)
+            if not user.check_password(password):
+                return Response({'message': 'Password invalid'}, status=403)
+            
+            request.session["username"] = username
+
+            return Response({'message': 'Password valid'}, status=200)
+        
+        return Response({'message': 'Password invalid'}, status=403)
 
 class LogoutView(APIView):
     def get(self, request):
