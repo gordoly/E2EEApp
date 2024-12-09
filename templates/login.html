@@ -1,7 +1,5 @@
 {% extends 'base.html' %}
 
-{% load static %}
-
 {% block content %}
     <form class="login-signup">
         <h1>Login</h1>
@@ -19,7 +17,6 @@
         <a href="/auth/signup" style="text-decoration: underline;">Do not have an account?</a>
     </form>
 
-    <script src="{% static 'js/libs/crypto.js' %}"></script>
     <script>
         document.addEventListener('keydown', function(event) {
             if (event.keyCode === 13) {
@@ -56,7 +53,6 @@
                 if (!keyData) {
                     salt = generateRandomBytes();
                     iv = generateRandomBytes();
-                    await addData(db, "messages", {"id": username, "content": ""});
                 }
                 else {
                     for (let data of keyData["content"]) {
@@ -92,10 +88,11 @@
                     true,
                     ["encrypt", "decrypt"],
                 );
-
+                
                 const indexDBMessages = await getData(db, "messages", username);
                 let msgHistory = [];
                 
+                // decrypt all the messages saved in IndexDB if it exists
                 if (indexDBMessages) {
                     if (indexDBMessages["content"]) {
                         msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
@@ -105,9 +102,11 @@
                     await addData(db, "messages", {"id": username, "content": ""});
                 }
                 
+                // retrieve all the messages stored on the server that were sent to the client while offline
                 const messages_res = await axios.get("/history");
                 const messages = messages_res.data["messages"];
 
+                // decrypt the private RSA key stored in IndexDB and decrypt the messages stored on the server
                 if (Object.keys(messages).length > 0) {            
                     privateKey = await decryptRSAKey(privateKey, pwdDerivedKey, iv);
 
@@ -118,18 +117,21 @@
                             msgHistory.push(message);
                         }
                         catch {
-                            
+
                         }
                     }
 
+                    // append the decrypted messages and the messages stored within IndexDB
+                    // then encrypt the new message history and store it on IndexDB
                     const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
                     await setData(db, "messages", encryptedMsgHistory, username);
                 }
 
+                 // generate a new key pair and store the private key on IndexDB and public key on the database
                 const keyPair = await generateKeyPair();
                 const encryptedPrivate = await encryptRSAKey(keyPair.privateKey, pwdDerivedKey, iv);
 
-                if (keyData.length === 0) {
+                if (!keyData) {
                     await addData(db, "keys", {"id": username, "content": [
                         {"type": "salt", "content": salt}, 
                         {"type": "iv", "content": iv}, 

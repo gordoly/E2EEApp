@@ -12,20 +12,30 @@
 
 <div class="container" style="display: none" id="chatContainer">
     <ul class="nav-bar" style="margin-right: 3%;">
-        <li class="active"><a href="/friends">Home</a></li>
+        <li><a href="/friends">Home</a></li>
         <li class="end-section"><a href="/auth/logout">Logout</a></li>
         
         <div id="friendsList">
             <li class="no-hover">Friends</li>
             {% if friends %}
                 {% for friend in friends %}
-                    <li id="room_{{ friend.room_id }}" onclick="window.location.href='/chat/{{ friend.room_id }}'">
-                        <p style="display: inline;">{{ friend.username }}</p>
-                        <span class="status offline" id="status_{{ friend.username }}">Offline</span>
-                        <br>
-                        <button class="danger" onclick="removeFriend(event, '{{ friend.room_id }}')">Remove Friend</button>
-                        <br>
-                    </li>
+                    {% if room_id == friend.room_id %}
+                        <li id="room_{{ friend.room_id }}" class="active" onclick="window.location.href='/chat/{{ friend.room_id }}'">
+                            <p style="display: inline;">{{ friend.username }}</p>
+                            <span class="status offline" id="status_{{ friend.username }}">Offline</span>
+                            <br>
+                            <button class="danger" onclick="removeFriend(event, '{{ friend.room_id }}')">Remove Friend</button>
+                            <br>
+                        </li>
+                    {% else %}
+                        <li id="room_{{ friend.room_id }}" onclick="window.location.href='/chat/{{ friend.room_id }}'">
+                            <p style="display: inline;">{{ friend.username }}</p>
+                            <span class="status offline" id="status_{{ friend.username }}">Offline</span>
+                            <br>
+                            <button class="danger" onclick="removeFriend(event, '{{ friend.room_id }}')">Remove Friend</button>
+                            <br>
+                        </li>
+                    {% endif %}
                 {% endfor %}
             {% endif %}
         </div>
@@ -34,12 +44,21 @@
             <li class="no-hover">Groups</li>
             {% if group_chats %}
                 {% for group in group_chats %}
-                    <li class="group-list" id="room_{{ group.pk }}" onclick="window.location.href='/chat/{{ group.pk }}'">
-                        <p style="display: inline;">{{ group.fields.name }}</p>
-                        <br>
-                        <button class="danger" onclick="removeFriend(event, '{{ group.pk }}')">Leave Chat</button>
-                        <br>
-                    </li>
+                    {% if room_id == group.pk %}
+                        <li class="group-list active" id="room_{{ group.pk }}" onclick="window.location.href='/chat/{{ group.pk }}'">
+                            <p style="display: inline;">{{ group.fields.name }}</p>
+                            <br>
+                            <button class="danger" onclick="removeFriend(event, '{{ group.pk }}')">Leave Chat</button>
+                            <br>
+                        </li>
+                    {% else %}
+                        <li class="group-list" id="room_{{ group.pk }}" onclick="window.location.href='/chat/{{ group.pk }}'">
+                            <p style="display: inline;">{{ group.fields.name }}</p>
+                            <br>
+                            <button class="danger" onclick="removeFriend(event, '{{ group.pk }}')">Leave Chat</button>
+                            <br>
+                        </li>
+                    {% endif %}
                 {% endfor %}
             {% endif %}
         </div>
@@ -59,15 +78,8 @@
 
 <script>
     let room_id = "{{ room_id }}";
-
-    // when the user presses the "Enter" key, send whatever message the user wrote
-    document.getElementById("writeMessage").addEventListener("keyup", function(e) {
-        if (e.key === "Enter") {
-            send();
-        }
-    });
     
-    let username = "{{ username }}";
+    const username = "{{ username }}";
 
     let salt;
     let iv;
@@ -75,6 +87,13 @@
     let pwdDerivedKey;
 
     let socket = new WebSocket('/ws/chat/');
+
+    // when the user presses the "Enter" key, send whatever message the user wrote
+    document.getElementById("writeMessage").addEventListener("keyup", function(e) {
+        if (e.key === "Enter") {
+            send();
+        }
+    });
 
     // when the user closes the page, emit a leave event to socket server
     window.addEventListener('beforeunload', () => {
@@ -106,13 +125,12 @@
                     await addData(db, "messages", {"id": username, "content": ""});
                 }
 
-                msgHistory.push({"sender": sender, "receiver": username, "content": decryptedContent, "room_id": room_id});
+                msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": room_id});
 
                 const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
                 await setData(db, "messages", encryptedMsgHistory, username);
             }
             catch {
-                
             }
         }
 
@@ -163,7 +181,6 @@
             if (!keyData) {
                 salt = generateRandomBytes();
                 iv = generateRandomBytes();
-                await addData(db, "messages", {"id": username, "content": ""});
             }
             else {
                 for (let data of keyData["content"]) {
@@ -199,10 +216,11 @@
                 true,
                 ["encrypt", "decrypt"],
             );
-
+            
             const indexDBMessages = await getData(db, "messages", username);
             let msgHistory = [];
-
+            
+            // decrypt all the messages saved in IndexDB if it exists
             if (indexDBMessages) {
                 if (indexDBMessages["content"]) {
                     msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
@@ -212,9 +230,11 @@
                 await addData(db, "messages", {"id": username, "content": ""});
             }
             
+            // retrieve all the messages stored on the server that were sent to the client while offline
             const messages_res = await axios.get("/history");
             const messages = messages_res.data["messages"];
 
+            // decrypt the private RSA key stored in IndexDB and decrypt the messages stored on the server
             if (Object.keys(messages).length > 0) {            
                 privateKey = await decryptRSAKey(privateKey, pwdDerivedKey, iv);
 
@@ -229,22 +249,26 @@
                     }
                 }
 
+                // append the decrypted messages and the messages stored within IndexDB
+                // then encrypt the new message history and store it on IndexDB
                 const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
                 await setData(db, "messages", encryptedMsgHistory, username);
             }
-
+            
+            // display all messages in the message history to the user
             for (let message of msgHistory) {
                 if (message["room_id"] === room_id) {
                     addMessage(message["sender"], message["content"]);
                 }
             }
 
+            // generate a new key pair and store the private key on IndexDB and public key on the database
             const keyPair = await generateKeyPair();
             const encryptedPrivate = await encryptRSAKey(keyPair.privateKey, pwdDerivedKey, iv);
 
             privateKey = keyPair.privateKey;
             
-            if (keyData.length === 0) {
+            if (!keyData) {
                 await addData(db, "keys", {"id": username, "content": [
                     {"type": "salt", "content": salt}, 
                     {"type": "iv", "content": iv}, 
@@ -268,23 +292,12 @@
             });
 
             await join_room();
-
+            
             scrollToBottom();
         }
         else {
             alert(res.data["message"]);
         }
-    }
-
-    function removeFriend(event, room_id) {
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
-            room = document.getElementById(`room_${room_id}`);
-            if (room) {
-                room.remove();
-            }
-        }
-        event.stopPropagation();
     }
 
     // we'll send the message to the server by emitting a "send" event
@@ -322,7 +335,7 @@
         }
     }
 
-    // we emit a join room event to the server to join the room specified in url
+    // send a join room event to the server to join the room specified in url
     async function join_room() {
         socket.send(JSON.stringify({"type": "join_room", "content": {"room_id": room_id}}));
     }
