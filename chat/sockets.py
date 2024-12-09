@@ -171,6 +171,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
                         if new_status == 1:
                             await self.add_member_to_room(room, receiver)
+                            room_members = await self.get_members_of_room(room)
+                            
+                            if room.type:
+                                for member in room_members:
+                                    if member in user_rooms and member in user_connections:
+                                        if user_rooms[member] == room.pk:
+                                            channel_name = user_connections[member]
+                                            if channel_name:
+                                                await self.channel_layer.send(
+                                                    channel_name,
+                                                    {
+                                                        "type": "update_members"
+                                                    }
+                                                )
 
             elif message["type"] == "remove_room_member":
                 room_id = message["content"]["room_id"]
@@ -184,7 +198,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 if session_username in members:
                     user_rooms[session_username] = int(room_id)
 
-            elif message["type"] == "send_msg":
+            elif message["type"] == "send_msg":                
                 encrypted_msg = message["content"]["message"]
                 room_id = message["content"]["room_id"]
                 receiver = message["content"]["receiver"]
@@ -208,6 +222,55 @@ class ChatConsumer(AsyncWebsocketConsumer):
                                         "content": [session_username, room_id, encrypted_msg, date_time]
                                     }
                                 )
+
+            elif message["type"] == "add_member":
+                usernames_to_add = message["content"]["users_to_add"]
+                room_id = message["content"]["room_id"]
+
+                room = await self.get_chat_room_by_id(room_id)
+                room_owner = await self.get_room_owner(room)
+
+                if room_owner.username == session_username and room.type:
+                    room_members = await self.get_members_of_room(room)
+                        
+                    for username in usernames_to_add:
+                        receiver = await self.get_user_by_username(username)
+                        if username not in room_members:
+                            created_request = await self.create_friend_request(user, receiver, room, room.type)
+                            if username in user_connections:
+                                channel_name = user_connections.get(username)
+                                if channel_name:
+                                    await self.channel_layer.send(
+                                        channel_name,
+                                        {
+                                            "type": "new_request",
+                                            "content": [session_username, created_request.id, room.pk, room.name, room.type]
+                                        }
+                                    )
+
+            elif message["type"] == "remove_member":
+                username_to_remove = message["content"]["user_to_remove"]
+                room_id = message["content"]["room_id"]
+
+                room = await self.get_chat_room_by_id(room_id)
+                room_owner = await self.get_room_owner(room)
+
+                if room_owner.username == session_username and room.type:
+                    user_to_remove = await self.get_user_by_username(username_to_remove)
+                    await self.remove_member_from_room(room, user_to_remove)
+
+                    room_members = await self.get_members_of_room(room)
+                    for member in room_members:
+                        if member in user_rooms and member in user_connections:
+                            if user_rooms[member] == room_id:
+                                channel_name = user_connections[member]
+                                if channel_name:
+                                    await self.channel_layer.send(
+                                        channel_name,
+                                        {
+                                            "type": "update_members"
+                                        }
+                                    )
 
     @database_sync_to_async
     def get_user_by_username(self, username):
@@ -312,4 +375,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'new_msg',
             'content': content
+        }))
+
+    async def update_members(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'update_members'
         }))
