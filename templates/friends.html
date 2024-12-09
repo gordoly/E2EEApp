@@ -1,7 +1,5 @@
 {% extends 'base.html' %}
 
-{% load static %}
-
 {% block content %}
 
 <div class="container">
@@ -184,11 +182,15 @@
 
     function removeFriend(event, room_id) {
         if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
+            const confirmation = confirm("Are you sure you want to leave this chat room?");
 
-            room = document.getElementById(`room_${room_id}`);
-            if (room) {
-                room.remove();
+            if (confirmation) {
+                socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
+
+                room = document.getElementById(`room_${room_id}`);
+                if (room) {
+                    room.remove();
+                }
             }
         }
         event.stopPropagation();
@@ -315,7 +317,7 @@
                 }
             }
             else {
-                alert(message["content"]);
+                alert(`${message["content"]}. No friend requests were sent.`);
             }
         }
         
