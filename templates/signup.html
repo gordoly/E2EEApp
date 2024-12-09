@@ -3,7 +3,7 @@
 {% load static %}
 
 {% block content %}
-    <div class="login-signup"> 
+    <form class="login-signup"> 
         <h1>Sign Up</h1>
         <p>Username</p>
         <input id="username"/>
@@ -17,21 +17,33 @@
         <textarea id="about" rows="4" cols="50" style="resize: none;"></textarea>
         <br>
         <br>
-        <button onclick="signup()">Sign up</button>
-    </div>
+        <button onclick="signup(event)">Sign up</button>
+        
+        <br>
+        <br>
 
-    <script src="{% static 'js/libs/crypto.js' %}"></script>
+        <a href="/auth/signin" style="text-decoration: underline;">Already have an account?</a>
+    </form>
+
     <script>
-        async function signup() {
+        async function signup(event) {
+            event.preventDefault();
+
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            const firstName = document.getElementById("first_name").value;
+            const lastName = document.getElementById("last_name").value;
+            const about = document.getElementById("about").value; 
+
             let res = await axios.post('/auth/register/', {
-                username: $("#username").val(),
-                password: $("#password").val(),
-                first_name: $("#first_name").val(),
-                last_name: $("#last_name").val(),
-                about: $("#about").val()
+                "username": username,
+                "password": password,
+                "first_name": firstName,
+                "last_name": lastName,
+                "about": about
             }, {
-                headers: {
-                    'Content-Type': 'application/json'
+                validateStatus: function (status) {
+                    return status === 200 || status === 400;
                 }
             });
 
@@ -44,7 +56,7 @@
                 // imports the user's password for use by KDF
                 const keyMaterial = await crypto.subtle.importKey(
                     "raw", 
-                    new TextEncoder().encode($("#password").val()),
+                    new TextEncoder().encode(password),
                     { name: 'PBKDF2' },
                     false,
                     ["deriveBits", "deriveKey"]
@@ -67,9 +79,13 @@
                 const keyPair = await generateKeyPair();
                 const encryptedPrivate = await encryptRSAKey(keyPair.privateKey, pwdDerivedKey, iv);
 
-                await setData(db, "keys", {"id": 1, "type": "salt", "content": salt});
-                await addData(db, "keys", {"id": 2, "type": "iv", "content": iv});
-                await addData(db, "keys", {"id": 3, "type": "private", "content": encryptedPrivate});
+                await addData(db, "keys", {"id": username, "content": [
+                    {"type": "salt", "content": salt}, 
+                    {"type": "iv", "content": iv}, 
+                    {"type": "private", "content": encryptedPrivate}
+                ]});
+
+                await addData(db, "messages", {"id": username, "content": ""});
 
                 const exported = await crypto.subtle.exportKey(
                     'spki',
@@ -83,7 +99,11 @@
                 document.location.href = res.data["message"];
             }
             else {
-                alert(res.data["message"]);
+                let errorMsg = "";
+                for (let userField in res.data["message"]) {
+                    errorMsg += userField + ": " + res.data["message"][userField][0] + "\n";
+                }
+                alert(errorMsg);
             }
         }
     </script>

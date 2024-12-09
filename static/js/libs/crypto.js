@@ -48,40 +48,48 @@ function addData(db, store, data) {
     });
 }
 
-// set all the data in the database object store
-function setData(db, store, data) {
+// set the data in the database object store where the id = owner
+function setData(db, store, data, owner) {
     return new Promise((resolve, reject) => {
-        const transaction = db.transaction([store], "readwrite");
+        const transaction = db.transaction([store], 'readwrite');
         const objectStore = transaction.objectStore(store);
 
-        objectStore.clear();
+        const request = objectStore.get(owner)
 
-        const request = objectStore.add(data);
+        request.onsuccess = (event) => {
+            const requestedData = event.target.result;
+            requestedData["content"] = data
+            const putRequest = objectStore.put(requestedData);
 
-        request.onsuccess = () => {
-            resolve("Data successfully updated.");
+            putRequest.onsuccess = () => {
+                resolve('Data added successfully');
+            };
+
+            putRequest.onerror = (event) => {
+                reject('Error adding data: ' + event.target.errorCode);
+            };
         };
 
         request.onerror = (event) => {
-            reject("Error setting data in store:", event.target.error);
+            reject('Error clearing store: ' + event.target.errorCode);
         };
     });
 }
 
-// Get all data from the database from a data store
-function getData(db, store) {
+// Get all data from the database from a data store where the id = owner
+function getData(db, store, owner) {
     return new Promise((resolve, reject) => {
-        const transaction = db.transaction([store], "readonly");
+        const transaction = db.transaction([store], 'readonly');
         const objectStore = transaction.objectStore(store);
         
-        const request = objectStore.getAll();
-        
-        request.onsuccess = function(event) {
-            resolve(event.target.result);
+        const request = objectStore.get(owner);
+
+        request.onsuccess = (event) => {
+            resolve(event.target.result || null);
         };
 
-        request.onerror = function(event) {
-            reject(new Error("Error fetching data from store: " + event.target.error));
+        request.onerror = () => {
+            reject(null);
         };
     });
 }
