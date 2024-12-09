@@ -125,7 +125,7 @@
                     await addData(db, "messages", {"id": username, "content": ""});
                 }
 
-                msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": room_id});
+                msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": parseInt(room_id)});
 
                 const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
                 await setData(db, "messages", encryptedMsgHistory, username);
@@ -257,7 +257,7 @@
             
             // display all messages in the message history to the user
             for (let message of msgHistory) {
-                if (message["room_id"] === room_id) {
+                if (message["room_id"] === parseInt(room_id)) {
                     addMessage(message["sender"], message["content"]);
                 }
             }
@@ -292,7 +292,7 @@
             });
 
             await join_room();
-            
+
             scrollToBottom();
         }
         else {
@@ -326,7 +326,7 @@
                         );
 
                         const encrypted = await ecryptMessage(publicKey, message);
-                        socket.send(JSON.stringify({"type": "send_msg", "content": {"message": Array.from(new Uint8Array(encrypted)), "receiver": member.username, "room_id": room_id}}));
+                        socket.send(JSON.stringify({"type": "send_msg", "content": {"message": Array.from(new Uint8Array(encrypted)), "receiver": member.username, "room_id": parseInt(room_id)}}));
                     }
                 }
 
