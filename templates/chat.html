@@ -57,7 +57,6 @@
     </main>
 </div>
 
-<script src="{% static 'js/libs/crypto.js' %}"></script>
 <script>
     let room_id = "{{ room_id }}";
 
@@ -95,20 +94,25 @@
 
                 const db = await openDatabase();
 
-                const indexDBMessages = await getData(db, "messages");
+                const indexDBMessages = await getData(db, "messages", username);
                 let msgHistory = [];
 
-                if (indexDBMessages.length > 0) {
-                    msgHistory = await decryptMsgHistory(indexDBMessages[0]["content"], pwdDerivedKey, iv);
+                if (indexDBMessages) {
+                    if (indexDBMessages["content"]) {
+                        msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
+                    }
+                }
+                else {
+                    await addData(db, "messages", {"id": username, "content": ""});
                 }
 
                 msgHistory.push({"sender": sender, "receiver": username, "content": decryptedContent, "room_id": room_id});
 
                 const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
-                await setData(db, "messages", {"id": 1, "content": encryptedMsgHistory});
+                await setData(db, "messages", encryptedMsgHistory, username);
             }
             catch {
-                addMessage("", `A message from ${sender} could not be decrypted successfully.`);
+                
             }
         }
 
@@ -142,6 +146,10 @@
 
         const res = await axios.post("/auth/verify_password/", {
             "password": password
+        },{
+            validateStatus: function (status) {
+                return status === 200 || status === 403;
+            }
         });
 
         if (res.status === 200) {            
@@ -149,15 +157,16 @@
             document.getElementById("getPassword").style.display = "none";
 
             const db = await openDatabase();
-            const keyData = await getData(db, "keys");
+            const keyData = await getData(db, "keys", username);
 
             // use the key data if saved in IndexedDB, otherwise generate new ones
-            if (keyData.length === 0) {
+            if (!keyData) {
                 salt = generateRandomBytes();
                 iv = generateRandomBytes();
+                await addData(db, "messages", {"id": username, "content": ""});
             }
             else {
-                for (let data of keyData) {
+                for (let data of keyData["content"]) {
                     if (data["type"] === "salt") {
                         salt = data["content"];
                     } else if (data["type"] === "iv") {
@@ -191,11 +200,16 @@
                 ["encrypt", "decrypt"],
             );
 
-            const indexDBMessages = await getData(db, "messages");
+            const indexDBMessages = await getData(db, "messages", username);
             let msgHistory = [];
 
-            if (indexDBMessages.length > 0) {
-                msgHistory = await decryptMsgHistory(indexDBMessages[0]["content"], pwdDerivedKey, iv);
+            if (indexDBMessages) {
+                if (indexDBMessages["content"]) {
+                    msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
+                }
+            }
+            else {
+                await addData(db, "messages", {"id": username, "content": ""});
             }
             
             const messages_res = await axios.get("/history");
@@ -216,11 +230,13 @@
                 }
 
                 const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
-                await setData(db, "messages", {"id": 1, "content": encryptedMsgHistory});
+                await setData(db, "messages", encryptedMsgHistory, username);
             }
 
             for (let message of msgHistory) {
-                addMessage(message["sender"], message["content"]);
+                if (message["room_id"] === room_id) {
+                    addMessage(message["sender"], message["content"]);
+                }
             }
 
             const keyPair = await generateKeyPair();
@@ -228,9 +244,19 @@
 
             privateKey = keyPair.privateKey;
             
-            await setData(db, "keys", {"id": 1, "type": "salt", "content": salt});
-            await addData(db, "keys", {"id": 2, "type": "iv", "content": iv});
-            await addData(db, "keys", {"id": 3, "type": "private", "content": encryptedPrivate});
+            if (keyData.length === 0) {
+                await addData(db, "keys", {"id": username, "content": [
+                    {"type": "salt", "content": salt}, 
+                    {"type": "iv", "content": iv}, 
+                    {"type": "private", "content": encryptedPrivate}
+                ]});
+            } else {
+                await setData(db, "keys", [
+                    {"type": "salt", "content": salt}, 
+                    {"type": "iv", "content": iv}, 
+                    {"type": "private", "content": encryptedPrivate}
+                ], username);
+            }
 
             const exported = await crypto.subtle.exportKey(
                 'spki',
@@ -245,15 +271,18 @@
 
             scrollToBottom();
         }
+        else {
+            alert(res.data["message"]);
+        }
     }
 
     function removeFriend(event, room_id) {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
-        }
-        room = document.getElementById(`room_${room_id}`);
-        if (room) {
-            room.remove();
+            room = document.getElementById(`room_${room_id}`);
+            if (room) {
+                room.remove();
+            }
         }
         event.stopPropagation();
     }
