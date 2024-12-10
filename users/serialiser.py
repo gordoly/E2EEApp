@@ -1,5 +1,8 @@
+from django.contrib.auth import password_validation
+from django.core.exceptions import ValidationError
 from rest_framework import serializers
 from .models import AccountUser
+from .validator import ExtraPasswordValidator
 
 
 class UserSerialiser(serializers.ModelSerializer):
@@ -10,6 +13,20 @@ class UserSerialiser(serializers.ModelSerializer):
             'password': {'write_only': True},
             'about': {'required': False}
         }
+
+    def validate_password(self, value):
+        try:
+            password_validation.validate_password(value)
+        except ValidationError as e:
+            raise serializers.ValidationError(list(e)[0])
+        
+        custom_validator = ExtraPasswordValidator()
+        try:
+            custom_validator.validate(value)
+        except ValidationError as e:
+            raise serializers.ValidationError(list(e)[0])
+
+        return value
 
     def create(self, validated_data):
         password = validated_data.pop('password', None)

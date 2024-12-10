@@ -104,7 +104,7 @@
 </div>
 
 <script>
-    let room_id = "{{ room_id }}";
+    let roomId = "{{ room_id }}";
     
     const username = "{{ username }}";
     const roomOwner = "{{ room_owner }}";
@@ -154,7 +154,7 @@
                     await addData(db, "messages", {"id": username, "content": ""});
                 }
 
-                msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": parseInt(room_id)});
+                msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": parseInt(roomId)});
 
                 const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
                 await setData(db, "messages", encryptedMsgHistory, username);
@@ -169,7 +169,7 @@
         }
 
         else if (message["type"] === "update_members") {
-            const res = await axios.get(`/members/${room_id}`);
+            const res = await axios.get(`/members/${roomId}`);
             const members = res.data["message"];
 
             const roomMembers = document.getElementById("roomMembers");
@@ -179,7 +179,7 @@
                 if (roomOwner === username) {
                     roomMembers.innerHTML += `<li id="user_${member.username}">
                         <p style="display: inline"></p>
-                        <button class="danger" onclick="removeUser(${room_id}, '${member.username}')">Remove User</button>
+                        <button class="danger" onclick="removeUser(${roomId}, '${member.username}')">Remove User</button>
                     </li>`; 
                 }
                 else {
@@ -316,7 +316,7 @@
             
             // display all messages in the message history to the user
             for (let message of msgHistory) {
-                if (message["room_id"] === parseInt(room_id)) {
+                if (message["room_id"] === parseInt(roomId)) {
                     addMessage(message["sender"], message["content"]);
                 }
             }
@@ -352,7 +352,7 @@
 
             await join_room();
 
-            const res = await axios.get(`/members/${room_id}`);
+            const res = await axios.get(`/members/${roomId}`);
             const members = res.data["message"];
 
             // if the room type is a direct message chat with another user (roomType = False)
@@ -389,7 +389,7 @@
                     if (roomOwner === username) {
                         roomMembers.innerHTML += `<li id="user_${member.username}">
                             <p style="display: inline"></p>
-                            <button class="danger" onclick="removeUser(${room_id}, '${member.username}')">Remove User</button>
+                            <button class="danger" onclick="removeUser(${roomId}, '${member.username}')">Remove User</button>
                         </li>`; 
                     }
                     else {
@@ -453,7 +453,7 @@
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({"type": "add_member", "content": {
                 "users_to_add": users,
-                "room_id": room_id
+                "room_id": roomId
             }}));
             
             groupChatUsers.innerHTML = "";
@@ -461,27 +461,27 @@
     }
 
     // allow the owner to remove a current member from the group chat
-    function removeUser(room_id, username) {
+    function removeUser(roomId, username) {
         if (socket.readyState === WebSocket.OPEN) {
             const confirmation = confirm(`Are you sure you want to remove ${username} from this chat room?`);
             if (confirmation) {
                 socket.send(JSON.stringify({"type": "remove_member", "content": {
                     "user_to_remove": username,
-                    "room_id": room_id
+                    "room_id": roomId
                 }}));
             }
         }
     }
 
     // remove yourself self from the group chat
-    function removeFriend(event, room_id) {
+    function removeFriend(event, roomId) {
         if (socket.readyState === WebSocket.OPEN) {
             const confirmation = confirm("Are you sure you want to leave this chat room?");
 
             if (confirmation) {
-                socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
+                socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(roomId)}}));
 
-                room = document.getElementById(`room_${room_id}`);
+                room = document.getElementById(`room_${roomId}`);
                 if (room) {
                     room.remove();
                 }
@@ -497,7 +497,7 @@
         messageElement.value = "";
 
         if (message.trim()) {
-            const res = await axios.get(`/members/${room_id}`);
+            const res = await axios.get(`/members/${roomId}`);
             const members = res.data["message"];
 
             if (res.status === 200) {
@@ -516,7 +516,7 @@
                         );
 
                         const encrypted = await ecryptMessage(publicKey, message);
-                        socket.send(JSON.stringify({"type": "send_msg", "content": {"message": Array.from(new Uint8Array(encrypted)), "receiver": member.username, "room_id": parseInt(room_id)}}));
+                        socket.send(JSON.stringify({"type": "send_msg", "content": {"message": Array.from(new Uint8Array(encrypted)), "receiver": member.username, "room_id": parseInt(roomId)}}));
                     }
                 }
 
@@ -527,7 +527,7 @@
 
     // send a join room event to the server to join the room specified in url
     async function join_room() {
-        socket.send(JSON.stringify({"type": "join_room", "content": {"room_id": room_id}}));
+        socket.send(JSON.stringify({"type": "join_room", "content": {"room_id": roomId}}));
     }
 
     // function to add a message to the message box once a message has been received and decrypted
