@@ -198,7 +198,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 if session_username in members:
                     user_rooms[session_username] = int(room_id)
 
-            elif message["type"] == "send_msg":                
+            elif message["type"] == "send_msg":
                 encrypted_msg = message["content"]["message"]
                 room_id = message["content"]["room_id"]
                 receiver = message["content"]["receiver"]
@@ -232,21 +232,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
                 if room_owner.username == session_username and room.type:
                     room_members = await self.get_members_of_room(room)
+                    
+                    for username in usernames_to_add:
+                        try:
+                            receiver = await self.get_user_by_username(username)
+                            if username in room_members:
+                                await self.send(text_data=json.dumps({"type": "response", "content": f"user {username} is already part of the group chat"}))
+                                return
+                        except AccountUser.DoesNotExist:
+                            await self.send(text_data=json.dumps({"type": "response", "content": f"user {username} does not exist"}))
+                            return
                         
                     for username in usernames_to_add:
                         receiver = await self.get_user_by_username(username)
-                        if username not in room_members:
-                            created_request = await self.create_friend_request(user, receiver, room, room.type)
-                            if username in user_connections:
-                                channel_name = user_connections.get(username)
-                                if channel_name:
-                                    await self.channel_layer.send(
-                                        channel_name,
-                                        {
-                                            "type": "new_request",
-                                            "content": [session_username, created_request.id, room.pk, room.name, room.type]
-                                        }
-                                    )
+                        created_request = await self.create_friend_request(user, receiver, room, room.type)
+                        if username in user_connections:
+                            channel_name = user_connections.get(username)
+                            if channel_name:
+                                await self.channel_layer.send(
+                                    channel_name,
+                                    {
+                                        "type": "new_request",
+                                        "content": [session_username, created_request.id, room.pk, room.name, room.type]
+                                    }
+                                )
 
             elif message["type"] == "remove_member":
                 username_to_remove = message["content"]["user_to_remove"]
