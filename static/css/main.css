@@ -230,3 +230,31 @@ main {
 .receiver {
     background-color: greenyellow;
 }
+
+.sidebar {
+    display: block;
+    margin-bottom: 0px;
+    color: black;
+    padding: 14px 16px;
+    text-decoration: none;
+    flex-grow: 1;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1); 
+    margin-left: 3%; 
+    padding-left: 20px;
+}
+
+#roomMembers {
+    overflow-y: auto;
+    height: 20%;
+}
+
+#roomMembers li {
+    display: block;
+    margin-bottom: 0px;
+    color: black;
+    text-align: left;
+    padding: 14px 16px;
+    text-decoration: none;
+    border: none;
+    margin-top: -15px;
+}

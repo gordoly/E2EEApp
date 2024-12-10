@@ -74,12 +74,41 @@
             <button onclick="send()" id="sendButton">Send</button>
         </section>
     </main>
+
+    <aside class="sidebar">
+        {% if room_type %}
+            <p>Members of this group chat:</p>
+            <ul id="roomMembers"></ul>
+            <br>
+            <br>
+            {% if username == room_owner %}
+                <form style="margin-top: 0px;">
+                    <label>Add more users to the group chat:</label>
+                    <br>
+                    <input type="text" id="userToAdd" name="userToAdd" placeholder="Enter a username">
+                    <button onclick="addUser(event)">Add user</button>
+                    <br>
+                    <br>
+                    <label>Users in the group chat:</label>
+                    <ul id="groupUsers"></ul>
+                    <button type="button" onclick="addUsersToGroupChat()">Send Request</button>
+                </form>
+            {% endif %}
+
+        {% else %}
+            <div id="friendInfo">
+                <p>Chatting with:</p>
+            </div>
+        {% endif %}
+    </aside>
 </div>
 
 <script>
     let room_id = "{{ room_id }}";
     
     const username = "{{ username }}";
+    const roomOwner = "{{ room_owner }}";
+    const roomType = "{{ room_type }}";
 
     let salt;
     let iv;
@@ -131,6 +160,31 @@
                 await setData(db, "messages", encryptedMsgHistory, username);
             }
             catch {
+            }
+        }
+
+        else if (message["type"] === "update_members") {
+            const res = await axios.get(`/members/${room_id}`);
+            const members = res.data["message"];
+
+            const roomMembers = document.getElementById("roomMembers");
+            roomMembers.innerHTML = "";
+
+            for (const member of members) {
+                if (roomOwner === username) {
+                    roomMembers.innerHTML += `<li id="user_${member.username}">
+                        <p style="display: inline"></p>
+                        <button class="danger" onclick="removeUser(${room_id}, '${member.username}')">Remove User</button>
+                    </li>`; 
+                }
+                else {
+                    roomMembers.innerHTML += `<li id="user_${member.username}">
+                        <p style="display: inline"></p>
+                    </li>`;  
+                }
+                roomMembers.innerHTML += `<li id="user_${member.username}"><p style="display: inline"></p></li>`;
+                const memberElement = document.getElementById(`user_${member.username}`);
+                memberElement.querySelector("p").textContent = member.username;
             }
         }
 
@@ -293,11 +347,142 @@
 
             await join_room();
 
+            const res = await axios.get(`/members/${room_id}`);
+            const members = res.data["message"];
+
+            // if the room type is a direct message chat with another user (roomType = False)
+            // display the other user's details in the aside element
+            // otherwise if the room is a group chat, display all the users in the group chat
+            // giving the owner of the group chat the ability to remove members
+            if (roomType === "False") {
+                const friendInfo = document.getElementById("friendInfo");
+
+                friendInfo.innerHTML += `<h3 id="friendName"></h3>
+                    <h4 id="friendUsername"></h4>
+                    <p>About me:</p>
+                    <p id="about"></p>`;
+
+                const friendName = document.getElementById("friendName");
+                const friendUsername = document.getElementById("friendUsername");
+                const about = document.getElementById("about");
+
+                if (members[0].username === username) {
+                    friendName.textContent = members[1].first_name + " " + members[1].last_name;
+                    friendUsername.textContent = members[1].username;
+                    about.textContent = members[1].about;
+                }
+                else {
+                    friendName.textContent = members[0].first_name + " " + members[0].last_name;
+                    friendUsername.textContent = members[0].username;
+                    about.textContent = members[0].about;
+                }
+            }
+            else {
+                const roomMembers = document.getElementById("roomMembers");
+
+                for (const member of members) {
+                    if (roomOwner === username) {
+                        roomMembers.innerHTML += `<li id="user_${member.username}">
+                            <p style="display: inline"></p>
+                            <button class="danger" onclick="removeUser(${room_id}, '${member.username}')">Remove User</button>
+                        </li>`; 
+                    }
+                    else {
+                        roomMembers.innerHTML += `<li id="user_${member.username}">
+                            <p style="display: inline"></p>
+                        </li>`;  
+                    }
+                    roomMembers.innerHTML += `<li id="user_${member.username}"><p style="display: inline"></p></li>`;
+                    const memberElement = document.getElementById(`user_${member.username}`);
+                    memberElement.querySelector("p").textContent = member.username;
+                }
+            }
+
             scrollToBottom();
         }
         else {
             alert(res.data["message"]);
         }
+    }
+
+    // add a user to a list of users that the room owner may add to the group chat
+    function addUser(event) {
+        event.preventDefault();
+        
+        const users = document.getElementById("groupUsers");
+        const userInput = document.getElementById("userToAdd");
+        
+        if (userInput.value) {
+            const user = document.createElement('li');
+
+            const p = document.createElement('p');
+            p.textContent = userInput.value;
+            p.style = "display: inline";
+
+            user.appendChild(p);
+
+            const button = document.createElement('button');
+            button.textContent = "Remove"
+            button.style.marginLeft = "10px";
+            button.onclick = function() {
+                users.removeChild(user);
+            }
+
+            user.appendChild(button);
+            users.appendChild(user);
+
+            userInput.value = "";
+        }
+    }
+
+    // add all the users in the list of users to the group chat
+    function addUsersToGroupChat() {
+        const groupChatUsers = document.getElementById('groupUsers');
+        const userListItems = groupChatUsers.getElementsByTagName("li");
+
+        const users = [];
+        for (let item of userListItems) {
+            users.push(item.querySelector("p").textContent);
+        }
+
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({"type": "add_member", "content": {
+                "users_to_add": users,
+                "room_id": room_id
+            }}));
+            
+            groupChatUsers.innerHTML = "";
+        }
+    }
+
+    // allow the owner to remove a current member from the group chat
+    function removeUser(room_id, username) {
+        if (socket.readyState === WebSocket.OPEN) {
+            const confirmation = confirm(`Are you sure you want to remove ${username} from this chat room?`);
+            if (confirmation) {
+                socket.send(JSON.stringify({"type": "remove_member", "content": {
+                    "user_to_remove": username,
+                    "room_id": room_id
+                }}));
+            }
+        }
+    }
+
+    // remove yourself self from the group chat
+    function removeFriend(event, room_id) {
+        if (socket.readyState === WebSocket.OPEN) {
+            const confirmation = confirm("Are you sure you want to leave this chat room?");
+
+            if (confirmation) {
+                socket.send(JSON.stringify({"type": "remove_room_member", "content": {"room_id": parseInt(room_id)}}));
+
+                room = document.getElementById(`room_${room_id}`);
+                if (room) {
+                    room.remove();
+                }
+            }
+        }
+        event.stopPropagation();
     }
 
     // we'll send the message to the server by emitting a "send" event
