@@ -160,7 +160,12 @@
                 await setData(db, "messages", encryptedMsgHistory, username);
             }
             catch {
+
             }
+        }
+
+        else if (message["type"] === "response") {
+            alert(`${message["content"]}. No friend requests were sent.`);
         }
 
         else if (message["type"] === "update_members") {
