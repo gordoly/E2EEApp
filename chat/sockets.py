@@ -202,6 +202,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 encrypted_msg = message["content"]["message"]
                 room_id = message["content"]["room_id"]
                 receiver = message["content"]["receiver"]
+                hash_digest = message["content"]["hash"]
+                salt = message["content"]["salt"]
                 date_time = timezone.now().isoformat()
                 
                 room = await self.get_chat_room_by_id(room_id)
@@ -210,7 +212,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
                 if session_username in members:
                     if receiver not in user_rooms:
-                        await self.create_message(user, receiver_obj, encrypted_msg, room, date_time)
+                        await self.create_message(user, receiver_obj, encrypted_msg, room, date_time, hash_digest, salt)
                     else:
                         if receiver in user_connections:
                             channel_name = user_connections.get(receiver)
@@ -219,7 +221,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                                     channel_name,
                                     {
                                         "type": "new_msg",
-                                        "content": [session_username, room_id, encrypted_msg, date_time]
+                                        "content": [session_username, room_id, encrypted_msg, date_time, hash_digest, salt]
                                     }
                                 )
 
@@ -350,9 +352,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         return members
     
     @database_sync_to_async
-    def create_message(self, user, receiver, encrypted_msg, room, date_time):
+    def create_message(self, user, receiver, encrypted_msg, room, date_time, hash_digest, salt):
         from .models import Message
-        return Message.objects.create(sender=user, receiver=receiver, content=encrypted_msg, room=room, date_time=date_time)
+        return Message.objects.create(sender=user, receiver=receiver, content=encrypted_msg, room=room, date_time=date_time, hash_digest=hash_digest, salt=salt)
     
     @database_sync_to_async
     def get_room_owner(self, room):

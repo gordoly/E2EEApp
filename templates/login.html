@@ -113,8 +113,14 @@
                     for (let message of messages) {
                         try {
                             const msg = await decryptMessage(privateKey, new Uint8Array(JSON.parse(message["content"])));
-                            message["content"] = msg;
-                            msgHistory.push(message);
+                            const hash = new Uint8Array(JSON.parse(message["hash"]));
+                            const hashSalt = new Uint8Array(JSON.parse(message["salt"]))
+
+                            const hashSame = await compareHash(msg, hash, hashSalt);
+                            if (hashSame) {
+                                message["content"] = msg;
+                                msgHistory.push(message);
+                            }
                         }
                         catch {
 

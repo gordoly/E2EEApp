@@ -32,3 +32,5 @@ class Message(models.Model):
     content = models.TextField()
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE)
     date_time = models.DateTimeField()
+    hash_digest = models.TextField()
+    salt = models.TextField()

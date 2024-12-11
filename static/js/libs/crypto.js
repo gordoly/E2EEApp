@@ -188,3 +188,31 @@ async function decryptMessage(privateKey, encrypted) {
 
     return new TextDecoder().decode(decrypted);
 }
+
+// hash and salt a string
+async function hashWithSalt(plainText, salt) {
+    const encoder = new TextEncoder();
+    const textBuffer = encoder.encode(plainText);
+    const combined = new Uint8Array(textBuffer.length + salt.length);
+
+    combined.set(textBuffer);
+    combined.set(salt, textBuffer.length);
+
+    const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+    
+    return hashBuffer;
+}
+
+// compare a plain text with a hash to see if they are same string
+async function compareHash(plainText, storedHash, storedSalt) {
+    const hashToCompare = await hashWithSalt(plainText, storedSalt);
+    const uint8Hash = new Uint8Array(hashToCompare);
+    
+    for (let i = 0; i < storedHash.length; i++) {
+        if (storedHash[i] !== uint8Hash[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}

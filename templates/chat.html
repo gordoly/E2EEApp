@@ -124,6 +124,13 @@
         }
     });
 
+    // when the user presses the "Enter" key, submit the password on the initial screen
+    document.getElementById("password").addEventListener("keyup", function(e) {
+        if (e.key === "Enter") {
+            verifyPassword();
+        }
+    });
+
     // when the user closes the page, emit a leave event to socket server
     window.addEventListener('beforeunload', () => {
         socket.close();
@@ -135,29 +142,35 @@
         if (message["type"] === "new_msg") {
             const sender = message["content"][0];
             const msg = new Uint8Array(message["content"][2]);
+            const hash = new Uint8Array(message["content"][4]);
+            const hashSalt = new Uint8Array(message["content"][5]);
             
             try {
                 const decryptedContent = await decryptMessage(privateKey, msg);
-                addMessage(sender, decryptedContent);
 
-                const db = await openDatabase();
+                const hashSame = await compareHash(decryptedContent, hash, hashSalt);
+                if (hashSame) {
+                    addMessage(sender, decryptedContent);
 
-                const indexDBMessages = await getData(db, "messages", username);
-                let msgHistory = [];
+                    const db = await openDatabase();
 
-                if (indexDBMessages) {
-                    if (indexDBMessages["content"]) {
-                        msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
+                    const indexDBMessages = await getData(db, "messages", username);
+                    let msgHistory = [];
+
+                    if (indexDBMessages) {
+                        if (indexDBMessages["content"]) {
+                            msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
+                        }
                     }
-                }
-                else {
-                    await addData(db, "messages", {"id": username, "content": ""});
-                }
+                    else {
+                        await addData(db, "messages", {"id": username, "content": ""});
+                    }
 
-                msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": parseInt(roomId)});
-
-                const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
-                await setData(db, "messages", encryptedMsgHistory, username);
+                    msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": parseInt(roomId)});
+                        
+                    const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
+                    await setData(db, "messages", encryptedMsgHistory, username);
+                }
             }
             catch {
 
@@ -300,8 +313,14 @@
                 for (let message of messages) {
                     try {
                         const msg = await decryptMessage(privateKey, new Uint8Array(JSON.parse(message["content"])));
-                        message["content"] = msg;
-                        msgHistory.push(message);
+                        const hash = new Uint8Array(JSON.parse(message["hash"]));
+                        const hashSalt = new Uint8Array(JSON.parse(message["salt"])) 
+                        
+                        const hashSame = await compareHash(msg, hash, hashSalt);
+                        if (hashSame) {
+                            message["content"] = msg;
+                            msgHistory.push(message);
+                        }
                     }
                     catch {
                         
@@ -516,7 +535,16 @@
                         );
 
                         const encrypted = await ecryptMessage(publicKey, message);
-                        socket.send(JSON.stringify({"type": "send_msg", "content": {"message": Array.from(new Uint8Array(encrypted)), "receiver": member.username, "room_id": parseInt(roomId)}}));
+                        const hashSalt = await generateRandomBytes();
+                        const hash = await hashWithSalt(message, hashSalt);
+
+                        socket.send(JSON.stringify({"type": "send_msg", "content": {
+                            "message": Array.from(new Uint8Array(encrypted)), 
+                            "receiver": member.username, 
+                            "room_id": parseInt(roomId), 
+                            "hash": Array.from(new Uint8Array(hash)), 
+                            "salt": Array.from(new Uint8Array(hashSalt))
+                        }}));
                     }
                 }
 
