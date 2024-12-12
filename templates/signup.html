@@ -55,8 +55,8 @@
             if (res.status === 200) {
                 const db = await openDatabase();
 
-                const salt = generateRandomBytes();
-                const iv = generateRandomBytes();
+                const salt = generateRandomBytes(16);
+                const iv = generateRandomBytes(12);
 
                 // imports the user's password for use by KDF
                 const keyMaterial = await crypto.subtle.importKey(
@@ -82,7 +82,7 @@
                 );
 
                 const keyPair = await generateKeyPair();
-                const encryptedPrivate = await encryptRSAKey(keyPair.privateKey, pwdDerivedKey, iv);
+                const encryptedPrivate = await encryptPrivateKey(keyPair.privateKey, pwdDerivedKey, iv);
 
                 await addData(db, "keys", {"id": username, "content": [
                     {"type": "salt", "content": salt}, 

@@ -134,8 +134,8 @@ class ChatHistoryView(View):
                     "content": message.content, 
                     "room_id": message.room.pk, 
                     "date_time": message.date_time,
-                    "hash": message.hash_digest,
-                    "salt": message.salt
+                    "public_key": message.public_key,
+                    "iv": message.iv
                 }
                 messages.append(msg)
 

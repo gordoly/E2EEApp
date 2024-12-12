@@ -51,8 +51,8 @@
 
                 // use the key data if saved in IndexedDB, otherwise generate new ones
                 if (!keyData) {
-                    salt = generateRandomBytes();
-                    iv = generateRandomBytes();
+                    salt = generateRandomBytes(16);
+                    iv = generateRandomBytes(12);
                 }
                 else {
                     for (let data of keyData["content"]) {
@@ -106,21 +106,32 @@
                 const messages_res = await axios.get("/history");
                 const messages = messages_res.data["messages"];
 
-                // decrypt the private RSA key stored in IndexDB and decrypt the messages stored on the server
+                // decrypt the private ECDH key stored in IndexDB and decrypt the messages stored on the server
                 if (Object.keys(messages).length > 0) {            
-                    privateKey = await decryptRSAKey(privateKey, pwdDerivedKey, iv);
+                    privateKey = await decryptPrivateKey(privateKey, pwdDerivedKey, iv);
 
                     for (let message of messages) {
                         try {
-                            const msg = await decryptMessage(privateKey, new Uint8Array(JSON.parse(message["content"])));
-                            const hash = new Uint8Array(JSON.parse(message["hash"]));
-                            const hashSalt = new Uint8Array(JSON.parse(message["salt"]))
+                            const otherPkMaterial = new Uint8Array(message["public_key"]); 
+                            const msgIv = new Uint8Array(JSON.parse(message["iv"]));
+                            const content = new Uint8Array(JSON.parse(message["content"]));
 
-                            const hashSame = await compareHash(msg, hash, hashSalt);
-                            if (hashSame) {
-                                message["content"] = msg;
-                                msgHistory.push(message);
-                            }
+                            const otherPublicKey = await crypto.subtle.importKey(
+                                'spki',
+                                otherPkMaterial,
+                                {
+                                    name: 'ECDH',
+                                    namedCurve: "P-256"
+                                },
+                                true,
+                                []
+                            );
+                            const sharedKey = await deriveSharedSecret(privateKey, otherPublicKey);
+
+                            const msg = await decryptMessage(sharedKey, msgIv, content);
+
+                            message["content"] = msg;
+                            msgHistory.push(message);
                         }
                         catch {
 
@@ -135,7 +146,7 @@
 
                  // generate a new key pair and store the private key on IndexDB and public key on the database
                 const keyPair = await generateKeyPair();
-                const encryptedPrivate = await encryptRSAKey(keyPair.privateKey, pwdDerivedKey, iv);
+                const encryptedPrivate = await encryptPrivateKey(keyPair.privateKey, pwdDerivedKey, iv);
 
                 if (!keyData) {
                     await addData(db, "keys", {"id": username, "content": [

@@ -115,6 +115,8 @@
     let privateKey;
     let pwdDerivedKey;
 
+    const sharedSecretKeys = {};
+
     let socket = new WebSocket('/ws/chat/');
 
     // when the user presses the "Enter" key, send whatever message the user wrote
@@ -142,35 +144,33 @@
         if (message["type"] === "new_msg") {
             const sender = message["content"][0];
             const msg = new Uint8Array(message["content"][2]);
-            const hash = new Uint8Array(message["content"][4]);
-            const hashSalt = new Uint8Array(message["content"][5]);
+            const msgIv = new Uint8Array(message["content"][4]);
+
+            const symmetricKey = sharedSecretKeys[sender];
             
             try {
-                const decryptedContent = await decryptMessage(privateKey, msg);
+                const decryptedContent = await decryptMessage(symmetricKey, msgIv, msg);
 
-                const hashSame = await compareHash(decryptedContent, hash, hashSalt);
-                if (hashSame) {
-                    addMessage(sender, decryptedContent);
+                addMessage(sender, decryptedContent);
 
-                    const db = await openDatabase();
+                const db = await openDatabase();
 
-                    const indexDBMessages = await getData(db, "messages", username);
-                    let msgHistory = [];
+                const indexDBMessages = await getData(db, "messages", username);
+                let msgHistory = [];
 
-                    if (indexDBMessages) {
-                        if (indexDBMessages["content"]) {
-                            msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
-                        }
+                if (indexDBMessages) {
+                    if (indexDBMessages["content"]) {
+                        msgHistory = await decryptMsgHistory(indexDBMessages["content"], pwdDerivedKey, iv);
                     }
-                    else {
-                        await addData(db, "messages", {"id": username, "content": ""});
-                    }
-
-                    msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": parseInt(roomId)});
-                        
-                    const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
-                    await setData(db, "messages", encryptedMsgHistory, username);
                 }
+                else {
+                    await addData(db, "messages", {"id": username, "content": ""});
+                }
+
+                msgHistory.push({"sender": sender, "content": decryptedContent, "room_id": parseInt(roomId)});
+                
+                const encryptedMsgHistory = await encryptMsgHistory(msgHistory, pwdDerivedKey, iv);
+                await setData(db, "messages", encryptedMsgHistory, username);
             }
             catch {
 
@@ -203,6 +203,29 @@
                 roomMembers.innerHTML += `<li id="user_${member.username}"><p style="display: inline"></p></li>`;
                 const memberElement = document.getElementById(`user_${member.username}`);
                 memberElement.querySelector("p").textContent = member.username;
+            }
+        }
+
+        else if (message["type"] === "update_key") {
+            const res = await axios.get(`/members/${roomId}`);
+            const members = res.data["message"];
+
+            for (const member of members) {
+                if (member.username === message["content"]) {
+                    const pkMaterial = new Uint8Array(member.public_key);
+                    const publicKey = await crypto.subtle.importKey(
+                        'spki',
+                        pkMaterial,
+                        {
+                            name: 'ECDH',
+                            namedCurve: "P-256"
+                        },
+                        true,
+                        []
+                    );
+                    const sharedKey = await deriveSharedSecret(privateKey, publicKey);
+                    sharedSecretKeys[member.username] = sharedKey;
+                }
             }
         }
 
@@ -251,8 +274,8 @@
 
             // use the key data if saved in IndexedDB, otherwise generate new ones
             if (!keyData) {
-                salt = generateRandomBytes();
-                iv = generateRandomBytes();
+                salt = generateRandomBytes(16);
+                iv = generateRandomBytes(12);
             }
             else {
                 for (let data of keyData["content"]) {
@@ -306,24 +329,35 @@
             const messages_res = await axios.get("/history");
             const messages = messages_res.data["messages"];
 
-            // decrypt the private RSA key stored in IndexDB and decrypt the messages stored on the server
+            // decrypt the private ECDH key stored in IndexDB and decrypt the messages stored on the server
             if (Object.keys(messages).length > 0) {            
-                privateKey = await decryptRSAKey(privateKey, pwdDerivedKey, iv);
+                privateKey = await decryptPrivateKey(privateKey, pwdDerivedKey, iv);
 
                 for (let message of messages) {
                     try {
-                        const msg = await decryptMessage(privateKey, new Uint8Array(JSON.parse(message["content"])));
-                        const hash = new Uint8Array(JSON.parse(message["hash"]));
-                        const hashSalt = new Uint8Array(JSON.parse(message["salt"])) 
-                        
-                        const hashSame = await compareHash(msg, hash, hashSalt);
-                        if (hashSame) {
-                            message["content"] = msg;
-                            msgHistory.push(message);
-                        }
+                        const otherPkMaterial = new Uint8Array(message["public_key"]); 
+                        const msgIv = new Uint8Array(JSON.parse(message["iv"]));
+                        const content = new Uint8Array(JSON.parse(message["content"]));
+
+                        const otherPublicKey = await crypto.subtle.importKey(
+                            'spki',
+                            otherPkMaterial,
+                            {
+                                name: 'ECDH',
+                                namedCurve: "P-256"
+                            },
+                            true,
+                            []
+                        );
+                        const sharedKey = await deriveSharedSecret(privateKey, otherPublicKey);
+
+                        const msg = await decryptMessage(sharedKey, msgIv, content);
+
+                        message["content"] = msg;
+                        msgHistory.push(message);
                     }
                     catch {
-                        
+
                     }
                 }
 
@@ -342,7 +376,7 @@
 
             // generate a new key pair and store the private key on IndexDB and public key on the database
             const keyPair = await generateKeyPair();
-            const encryptedPrivate = await encryptRSAKey(keyPair.privateKey, pwdDerivedKey, iv);
+            const encryptedPrivate = await encryptPrivateKey(keyPair.privateKey, pwdDerivedKey, iv);
 
             privateKey = keyPair.privateKey;
             
@@ -369,10 +403,30 @@
                 "public_key": Array.from(new Uint8Array(exported))
             });
 
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({"type": "pk_key_change"}));
+            }
+
             await join_room();
 
             const res = await axios.get(`/members/${roomId}`);
             const members = res.data["message"];
+
+            for (const member of members) {
+                const pkMaterial = new Uint8Array(member.public_key);
+                const publicKey = await crypto.subtle.importKey(
+                    'spki',
+                    pkMaterial,
+                    {
+                        name: 'ECDH',
+                        namedCurve: "P-256"
+                    },
+                    true,
+                    []
+                );
+                const sharedKey = await deriveSharedSecret(privateKey, publicKey);
+                sharedSecretKeys[member.username] = sharedKey;
+            }
 
             // if the room type is a direct message chat with another user (roomType = False)
             // display the other user's details in the aside element
@@ -516,40 +570,17 @@
         messageElement.value = "";
 
         if (message.trim()) {
-            const res = await axios.get(`/members/${roomId}`);
-            const members = res.data["message"];
-
-            if (res.status === 200) {
-                for (let member of members) {
-                    if (member.public_key) {
-                        const pkMaterial = new Uint8Array(member.public_key);
-                        const publicKey = await crypto.subtle.importKey(
-                            'spki',
-                            pkMaterial,
-                            {
-                                name: 'RSA-OAEP',
-                                hash: 'SHA-256'
-                            },
-                            true,
-                            ['encrypt']
-                        );
-
-                        const encrypted = await ecryptMessage(publicKey, message);
-                        const hashSalt = await generateRandomBytes();
-                        const hash = await hashWithSalt(message, hashSalt);
-
-                        socket.send(JSON.stringify({"type": "send_msg", "content": {
-                            "message": Array.from(new Uint8Array(encrypted)), 
-                            "receiver": member.username, 
-                            "room_id": parseInt(roomId), 
-                            "hash": Array.from(new Uint8Array(hash)), 
-                            "salt": Array.from(new Uint8Array(hashSalt))
-                        }}));
-                    }
-                }
-
-                scrollToBottom();
+            for (const member in sharedSecretKeys) {
+                const { encrypted, msgIv } = await encryptMessage(message, sharedSecretKeys[member]);
+                socket.send(JSON.stringify({"type": "send_msg", "content": {
+                    "message": Array.from(new Uint8Array(encrypted)), 
+                    "receiver": member,
+                    "room_id": parseInt(roomId), 
+                    "iv": Array.from(new Uint8Array(msgIv))
+                }}));
             }
+
+            scrollToBottom();
         }
     }
 

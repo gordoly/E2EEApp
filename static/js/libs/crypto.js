@@ -1,6 +1,6 @@
 // Generate random bytes for salt and iv
-function generateRandomBytes() {
-    const array = new Uint8Array(16);
+function generateRandomBytes(length) {
+    const array = new Uint8Array(length);
     window.crypto.getRandomValues(array);
     return array;
 }
@@ -98,19 +98,17 @@ function getData(db, store, owner) {
 async function generateKeyPair() {
     const keyPair = await crypto.subtle.generateKey(
         {
-            name: "RSA-OAEP",
-            modulusLength: 2048,
-            publicExponent: new Uint8Array([1, 0, 1]),
-            hash: { name: "SHA-256" },
+            name: "ECDH",
+            namedCurve: "P-256",
         },
         true,
-        ["encrypt", "decrypt"]
+        ["deriveKey", "deriveBits"]
     );
     return keyPair;
 }
 
 // encrypt the private key of the RSA key pair
-async function encryptRSAKey(privateKey, passDerivedKey, iv) {
+async function encryptPrivateKey(privateKey, passDerivedKey, iv) {
     const exported = await crypto.subtle.exportKey("pkcs8", privateKey);
     const encryptedKey = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: new TextEncoder().encode(iv) },
@@ -121,7 +119,7 @@ async function encryptRSAKey(privateKey, passDerivedKey, iv) {
 }
 
 // decrypt the private key of the RSA key pair
-async function decryptRSAKey(encryptedKey, passDerivedKey, iv) {
+async function decryptPrivateKey(encryptedKey, passDerivedKey, iv) {
     const decryptedKey = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new TextEncoder().encode(iv) },
         passDerivedKey,
@@ -132,11 +130,11 @@ async function decryptRSAKey(encryptedKey, passDerivedKey, iv) {
         'pkcs8',
         decryptedKey,
         {
-            name: 'RSA-OAEP',
-            hash: 'SHA-256',
+            name: "ECDH",
+            namedCurve: "P-256",
         },
         true,
-        ['decrypt']
+        ["deriveKey", "deriveBits"]
     );
 
     return importedKey;
@@ -165,54 +163,55 @@ async function decryptMsgHistory(msgHistory, passDerivedKey, iv) {
     return JSON.parse(decoded);
 }
 
-// encrypt a string using a public RSA key
-async function ecryptMessage(publicKey, message) {
-    const encoded = new TextEncoder().encode(message);
-    
-    const encrypted = await crypto.subtle.encrypt(
-        { name: "RSA-OAEP" },
-        publicKey,
-        encoded
+// derive shared key using Diffe Hellman
+async function deriveSharedSecret(privateKey, publicKey) {
+    const sharedSecret = await crypto.subtle.deriveBits(
+      {
+        name: "ECDH",
+        private: privateKey,
+        public: publicKey
+      },
+      privateKey,
+      256
     );
 
-    return encrypted;
+    const symmetricKey = await crypto.subtle.importKey(
+        "raw", 
+        sharedSecret,
+        { name: "AES-GCM" },
+        true,
+        ["encrypt", "decrypt"]
+    );
+
+    return symmetricKey;
+  }
+
+// encrypt a string using a shared Diffe Hellman key
+async function encryptMessage(message, symmetricKey) {
+    const msgIv = generateRandomBytes(12);
+    
+    const encrypted = await crypto.subtle.encrypt(
+        {
+            name: "AES-GCM",
+            iv: msgIv,
+        },
+        symmetricKey,
+        new TextEncoder().encode(message)
+    );
+  
+    return { encrypted, msgIv };
 }
 
 // decrypt a string using a private RSA key
-async function decryptMessage(privateKey, encrypted) {
+async function decryptMessage(symmetricKey, iv, encrypted) {
     const decrypted = await crypto.subtle.decrypt(
-        { name: "RSA-OAEP" },
-        privateKey,
+        {
+            name: "AES-GCM",
+            iv: iv,
+        },
+        symmetricKey,
         encrypted
     );
-
+ 
     return new TextDecoder().decode(decrypted);
-}
-
-// hash and salt a string
-async function hashWithSalt(plainText, salt) {
-    const encoder = new TextEncoder();
-    const textBuffer = encoder.encode(plainText);
-    const combined = new Uint8Array(textBuffer.length + salt.length);
-
-    combined.set(textBuffer);
-    combined.set(salt, textBuffer.length);
-
-    const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
-    
-    return hashBuffer;
-}
-
-// compare a plain text with a hash to see if they are same string
-async function compareHash(plainText, storedHash, storedSalt) {
-    const hashToCompare = await hashWithSalt(plainText, storedSalt);
-    const uint8Hash = new Uint8Array(hashToCompare);
-    
-    for (let i = 0; i < storedHash.length; i++) {
-        if (storedHash[i] !== uint8Hash[i]) {
-            return false;
-        }
-    }
-
-    return true;
 }
