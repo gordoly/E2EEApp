@@ -11,7 +11,9 @@ class UserSerialiser(serializers.ModelSerializer):
         fields = ['first_name', 'last_name', 'username', 'about', 'password', 'public_key']
         extra_kwargs = {
             'password': {'write_only': True},
-            'about': {'required': False}
+            'about': {'required': False},
+            'first_name': {'required': True},
+            'last_name': {'required': True}
         }
 
     def validate_password(self, value):
