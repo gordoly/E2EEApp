@@ -94,7 +94,7 @@ function getData(db, store, owner) {
     });
 }
 
-// generate an RSA key pair
+// generate an ECDH key pair
 async function generateKeyPair() {
     const keyPair = await crypto.subtle.generateKey(
         {
@@ -107,7 +107,7 @@ async function generateKeyPair() {
     return keyPair;
 }
 
-// encrypt the private key of the RSA key pair
+// encrypt the private key of the ECDH key pair
 async function encryptPrivateKey(privateKey, passDerivedKey, iv) {
     const exported = await crypto.subtle.exportKey("pkcs8", privateKey);
     const encryptedKey = await crypto.subtle.encrypt(
@@ -118,7 +118,7 @@ async function encryptPrivateKey(privateKey, passDerivedKey, iv) {
     return encryptedKey;
 }
 
-// decrypt the private key of the RSA key pair
+// decrypt the private key of the ECDH key pair
 async function decryptPrivateKey(encryptedKey, passDerivedKey, iv) {
     const decryptedKey = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new TextEncoder().encode(iv) },
@@ -140,7 +140,7 @@ async function decryptPrivateKey(encryptedKey, passDerivedKey, iv) {
     return importedKey;
 }
 
-// encrypt message history stored on IndexDB
+// encrypt message history stored on IndexDB using password derived key
 async function encryptMsgHistory(msgHistory, passDerivedKey, iv) {
     const stringified = JSON.stringify(msgHistory);
     const encoded = new TextEncoder().encode(stringified);
@@ -152,7 +152,7 @@ async function encryptMsgHistory(msgHistory, passDerivedKey, iv) {
     return encryptedMsgHistory;
 }
 
-// decrypt message history stored on IndexDB
+// decrypt message history stored on IndexDB using password derived key
 async function decryptMsgHistory(msgHistory, passDerivedKey, iv) {
     const decryptedMsgHistory = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new TextEncoder().encode(iv) },
@@ -202,7 +202,7 @@ async function encryptMessage(message, symmetricKey) {
     return { encrypted, msgIv };
 }
 
-// decrypt a string using a private RSA key
+// decrypt a string using a shared Diffe Hellman key
 async function decryptMessage(symmetricKey, iv, encrypted) {
     const decrypted = await crypto.subtle.decrypt(
         {
