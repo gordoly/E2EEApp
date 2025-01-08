@@ -1,11 +1,19 @@
-// Generate random bytes for salt and iv
+/**
+ * Generate random bytes for salt and iv 
+ * @param {Number} length 
+ * @returns an array of random bytes
+ */
 function generateRandomBytes(length) {
     const array = new Uint8Array(length);
     window.crypto.getRandomValues(array);
     return array;
 }
 
-// Open an IndexDB Database
+/**
+ * Open an IndexDB Database, creating appriopriate object stores to store message
+ * histories and key data if they do not exist.
+ * @returns a promise that resolves to the database object
+ */
 function openDatabase() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open('chatDatabase', 1);
@@ -30,7 +38,13 @@ function openDatabase() {
     });
 }
 
-// Add data to the database
+/**
+ * Add data to the database object store 
+ * @param {*} db the IndexDB database object
+ * @param {*} store the object store to add the data to
+ * @param {*} data the data to add to the object store
+ * @returns a promise that resolves to a success message or rejects with an error message
+ */
 function addData(db, store, data) {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([store], 'readwrite');
@@ -48,7 +62,15 @@ function addData(db, store, data) {
     });
 }
 
-// set the data in the database object store where the id = owner
+/**
+ * Set the data in the database object store where the id = owner 
+ * @param {*} db the IndexDB database object
+ * @param {*} store the object store to add the data to
+ * @param {*} data the data that the object store will be set to
+ * @param {*} owner the primary key of the data to be set, which corresponds to
+ * the username of the user who owns the data
+ * @returns a promise that resolves to a success message or rejects with an error message
+ */
 function setData(db, store, data, owner) {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([store], 'readwrite');
@@ -76,7 +98,14 @@ function setData(db, store, data, owner) {
     });
 }
 
-// Get all data from the database from a data store where the id = owner
+/**
+ * Get all data from the database from a data store where the id = owner 
+ * @param {*} db the IndexDB database object
+ * @param {*} store the object store to get the data from
+ * @param {*} owner the primary key of the data to be retrieved, which corresponds to
+ * the username of the user who owns the data 
+ * @returns the data from the object store
+ */
 function getData(db, store, owner) {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([store], 'readonly');
@@ -94,7 +123,10 @@ function getData(db, store, owner) {
     });
 }
 
-// generate an ECDH key pair
+/**
+ * Generate an Elliptic Curve Diffie-Hellman key pair 
+ * @returns key pair object containing the Diffie-Hellman public and private keys
+ */
 async function generateKeyPair() {
     const keyPair = await crypto.subtle.generateKey(
         {
@@ -107,7 +139,13 @@ async function generateKeyPair() {
     return keyPair;
 }
 
-// encrypt the private key of the ECDH key pair
+/**
+ * Encrypt the private key of the ECDH key pair 
+ * @param {*} privateKey the ECDH private key to be encrypted
+ * @param {*} passDerivedKey the password derived key used to encrypt the private key
+ * @param {*} iv the initialization vector used to encrypt the private key
+ * @returns the encrypted private key
+ */
 async function encryptPrivateKey(privateKey, passDerivedKey, iv) {
     const exported = await crypto.subtle.exportKey("pkcs8", privateKey);
     const encryptedKey = await crypto.subtle.encrypt(
@@ -118,7 +156,13 @@ async function encryptPrivateKey(privateKey, passDerivedKey, iv) {
     return encryptedKey;
 }
 
-// decrypt the private key of the ECDH key pair
+/**
+ * Decrypt the private key of the ECDH key pair 
+ * @param {*} encryptedKey the encrypted Diffie-Hellman private key to be decrypted
+ * @param {*} passDerivedKey the password derived key used to encrypt the private key 
+ * @param {*} iv the initialization vector used to encrypt the private key
+ * @returns the decrypted private key
+ */
 async function decryptPrivateKey(encryptedKey, passDerivedKey, iv) {
     const decryptedKey = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new TextEncoder().encode(iv) },
@@ -140,7 +184,14 @@ async function decryptPrivateKey(encryptedKey, passDerivedKey, iv) {
     return importedKey;
 }
 
-// encrypt message history stored on IndexDB using password derived key
+/**
+ * Encrypt message history stored on IndexDB using password derived key 
+ * @param {*} msgHistory the message history of all chat rooms that the user is part of
+ * which is to be encrypted
+ * @param {*} passDerivedKey the password derived key used to encrypt the message history
+ * @param {*} iv the initialization vector used to encrypt the message history
+ * @returns the encrypted message history
+ */
 async function encryptMsgHistory(msgHistory, passDerivedKey, iv) {
     const stringified = JSON.stringify(msgHistory);
     const encoded = new TextEncoder().encode(stringified);
@@ -152,7 +203,13 @@ async function encryptMsgHistory(msgHistory, passDerivedKey, iv) {
     return encryptedMsgHistory;
 }
 
-// decrypt message history stored on IndexDB using password derived key
+/**
+ * Decrypt message history stored on IndexDB using password derived key 
+ * @param {*} msgHistory the encrypted message history of all chat rooms that the user is part of
+ * @param {*} passDerivedKey the password derived key used to encrypt the message history
+ * @param {*} iv the initialization vector used to encrypt the message history
+ * @returns the decrypted message history
+ */
 async function decryptMsgHistory(msgHistory, passDerivedKey, iv) {
     const decryptedMsgHistory = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new TextEncoder().encode(iv) },
@@ -163,7 +220,12 @@ async function decryptMsgHistory(msgHistory, passDerivedKey, iv) {
     return JSON.parse(decoded);
 }
 
-// derive shared key using Diffe Hellman
+/**
+ * Derive shared key using ECDH
+ * @param {*} privateKey the private key of the user
+ * @param {*} publicKey the public key of the user who the user is communicating with
+ * @returns the shared key derived using ECDH
+ */
 async function deriveSharedSecret(privateKey, publicKey) {
     const sharedSecret = await crypto.subtle.deriveBits(
       {
@@ -186,7 +248,13 @@ async function deriveSharedSecret(privateKey, publicKey) {
     return symmetricKey;
   }
 
-// encrypt a string using a shared Diffe Hellman key
+/**
+ * Encrypt a string using a shared Diffe Hellman key 
+ * @param {*} message the message to be encrypted
+ * @param {*} symmetricKey the shared Diffie-Hellman key used to encrypt the message
+ * @returns the encrypted message as an array of bytes and the initialization vector 
+ * used to encrypt the message
+ */
 async function encryptMessage(message, symmetricKey) {
     const msgIv = generateRandomBytes(12);
     
@@ -202,7 +270,13 @@ async function encryptMessage(message, symmetricKey) {
     return { encrypted, msgIv };
 }
 
-// decrypt a string using a shared Diffe Hellman key
+/**
+ * Decrypt a string using a shared Diffe Hellman key 
+ * @param {*} symmetricKey the shared Diffie-Hellman key used to encrypt/decrypt the message
+ * @param {*} iv the initialization vector used to encrypt the message
+ * @param {*} encrypted the encrypted message to be decrypted
+ * @returns a string containing the decrypted message
+ */
 async function decryptMessage(symmetricKey, iv, encrypted) {
     const decrypted = await crypto.subtle.decrypt(
         {

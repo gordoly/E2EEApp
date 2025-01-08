@@ -31,6 +31,11 @@
     </form>
 
     <script>
+        /**
+         * Function to sign up a user.
+         * 
+         * @param {Event} event the object containing the user event which triggers this function
+         */
         async function signup(event) {
             event.preventDefault();
 
@@ -40,6 +45,8 @@
             const lastName = document.getElementById("last_name").value;
             const about = document.getElementById("about").value; 
 
+            // make a post request to the server to register the user. if the server
+            // sends back a status code of 200 or 400, axios should not throw an error
             let res = await axios.post('/auth/register/', {
                 "username": username,
                 "password": password,
@@ -80,16 +87,19 @@
                     true,
                     ["encrypt", "decrypt"],
                 );
-
+                
+                // generate a new Diffie-Hellman key pair
                 const keyPair = await generateKeyPair();
+                // encrypt the private key of the Diffie-Hellman key pair
                 const encryptedPrivate = await encryptPrivateKey(keyPair.privateKey, pwdDerivedKey, iv);
-
+                
+                // save the salt and iv used to encrypt the private key, and encrypted private key to IndexedDB
                 await addData(db, "keys", {"id": username, "content": [
                     {"type": "salt", "content": salt}, 
                     {"type": "iv", "content": iv}, 
                     {"type": "private", "content": encryptedPrivate}
                 ]});
-
+                
                 await addData(db, "messages", {"id": username, "content": ""});
 
                 const exported = await crypto.subtle.exportKey(
@@ -97,13 +107,15 @@
                     keyPair.publicKey
                 );
                 
+                // save the public key to the server
                 await axios.post("/key/save/", {
                     "public_key": Array.from(new Uint8Array(exported))
                 });
-
+                
                 document.location.href = res.data["message"];
             }
             else {
+                // display an error message is 400 status code was returned
                 let errorMsg = "";
                 for (let userField in res.data["message"]) {
                     errorMsg += userField + ": " + res.data["message"][userField][0] + "\n";
