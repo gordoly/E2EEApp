@@ -12,17 +12,32 @@ import json
 
 class Friends(View):
     def get(self, request):
+        """
+        Get request method handler for the Friends view.
+
+        Intended for clients who are logged in and want to retrieve a webpage which
+        details all the friend requests they have received, sent, and the direct message
+        rooms and group chat rooms they are a part of.
+
+        args:
+            request: HttpRequest object containing the get request
+
+        returns:
+            HttpResponse: object containing the rendered friends.html template
+        """
         if "username" not in request.session:
             return HttpResponseForbidden("Forbidden")
         
         user = request.session["username"]
 
         user_obj = AccountUser.objects.get(username=user)
+        # serialise the user object into JSON to be able to pass it to the template
         user_obj_data = UserSerialiser(user_obj)
 
         received_requests = FriendRequest.objects.filter(receiver=user_obj)
 
         received_requests_list = []
+        # convert the received friend request database objects into a list of dictionaries
         for received in received_requests:
             room = received.room
             received_requests_list.append({
@@ -38,6 +53,7 @@ class Friends(View):
         sent_requests = FriendRequest.objects.filter(sender=user_obj).order_by('-pk')
 
         sent_requests_list = []
+        # convert the sent friend request database objects into a list of dictionaries
         for sent in sent_requests:
             room = sent.room
             sent_requests_list.append({
@@ -53,9 +69,12 @@ class Friends(View):
         rooms = ChatRoom.objects.filter(Q(members=user_obj) & Q(type=False))
         
         friend_rooms = []
+        # convert all direct message chat rooms into a list of dictionaries
         for room in rooms:
+            # display only rooms with more than one member (the only member of a chat room would be its creator)
             if room.members.count() > 1:
                 room_members = room.members.all()
+                # if the user is the first member of the room, display the second member's username
                 if room_members[0].username == user:
                     friend = AccountUser.objects.get(username=room_members[1])
                     friend_rooms.append({"username": room_members[1], "room_id": room.id, "about": friend.about})
@@ -63,6 +82,7 @@ class Friends(View):
                     friend = AccountUser.objects.get(username=room_members[0])
                     friend_rooms.append({"username": room_members[0], "room_id": room.id, "about": friend.about})
 
+        # serialise the group chat rooms into JSON to be able to pass it to the template
         group_chats = ChatRoom.objects.filter(Q(members=user_obj) & Q(type=True))
         group_chat_data = json.loads(serializers.serialize('json', group_chats))
 
@@ -78,9 +98,25 @@ class Friends(View):
 
 class ChatView(View):
     def get(self, request, room_id):
+        """
+        Get request method handler for the Chat view.
+
+        Intended for clients who are logged in and want to retrieve a webpage which would
+        allow them to send messages and communicate with other members of a chat room.
+
+        args:
+            request: HttpRequest object containing the get request
+            room_id: integer value representing the primary key of the chat room which is
+            provided in the URL
+
+        returns:
+            HttpResponse: object containing the rendered chat.html template
+        """
         if "username" not in request.session:
             return HttpResponseForbidden()
 
+        # check if the room_id is an integer, and must correspond with the primary key of some
+        # chat room in the database
         try:
             int(room_id)
         except ValueError:
@@ -92,9 +128,12 @@ class ChatView(View):
         rooms = ChatRoom.objects.filter(Q(members=user_obj) & Q(type=False))
         
         friend_rooms = []
+        # convert all direct message chat rooms into a list of dictionaries
         for room in rooms:
+            # display only rooms with more than one member (the only member of a chat room would be its creator)
             if room.members.count() > 1:
                 room_members = room.members.all()
+                # if the user is the first member of the room, display the second member's username
                 if room_members[0].username == user:
                     friend = AccountUser.objects.get(username=room_members[1])
                     friend_rooms.append({"username": room_members[1], "room_id": room.id, "about": friend.about})
@@ -103,6 +142,7 @@ class ChatView(View):
                     friend_rooms.append({"username": room_members[0], "room_id": room.id, "about": friend.about})
 
         group_chats = ChatRoom.objects.filter(Q(members=user_obj) & Q(type=True))
+        # serialise the group chat rooms into JSON to be able to pass it to the template
         group_chat_data = json.loads(serializers.serialize('json', group_chats))
 
         room = ChatRoom.objects.get(pk=room_id)
@@ -123,6 +163,18 @@ class ChatView(View):
    
 class ChatHistoryView(View):
     def get(self, request):
+        """
+        Get request method handler for the ChatHistory view.
+
+        Intended for clients who are logged in and want to retrieve the chat history of all chat rooms
+        the user is part of.
+
+        args:
+            request: HttpRequest object containing the get request
+
+        returns:
+            JsonResponse: object containing the chat history of all chat rooms the user is part of
+        """
         if "username" in request.session:
             user = AccountUser.objects.get(username=request.session.get("username"))
             history = Message.objects.filter(receiver=user).order_by('pk')
@@ -147,6 +199,19 @@ class ChatHistoryView(View):
 
 class RoomMembersView(APIView):
     def get(self, request, room_id): 
+        """
+        Get request method handler for the RoomMembers view.
+
+        Intended for clients who are logged in and want to retrieve the members of a chat room.
+
+        args:
+            request: HttpRequest object containing the get request
+            room_id: integer value representing the primary key of the chat room which is
+            provided in the URL
+
+        returns:
+            Response: JSON Response object containing the members of the specified chat room
+        """
         if "username" in request.session:
             try:
                 int(room_id)
@@ -156,6 +221,7 @@ class RoomMembersView(APIView):
             room = ChatRoom.objects.get(id=room_id)
             
             room_members_data = []
+            # convert all members of the chat room into a list of dictionaries
             for member in room.members.all():
                 room_members_data.append({
                     "username": member.username,
@@ -171,6 +237,18 @@ class RoomMembersView(APIView):
         
 class SavePublicKeyView(APIView):
     def post(self, request):
+        """
+        Post request method handler for the SavePublicKey view.
+        
+        Intended for clients who are logged in and want to save their public key to the database.
+
+        args:
+            request: HttpRequest object containing the post request
+
+        returns:
+            Response: JSON Response object containing a message indicating whether the public key was saved
+            successfully or not
+        """
         if "username" in request.session:
             public_key = request.data["public_key"]
             user = AccountUser.objects.get(username=request.session.get("username"))
@@ -182,6 +260,15 @@ class SavePublicKeyView(APIView):
     
 class RedirectView(View):
     def get(self, request):
+        """
+        Get request method handler for the Redirect view.
+
+        Args:
+            request: HttpRequest object containing the get request
+
+        Returns:
+            HttpResponseRedirect: Redirects the user to the friends page if they are logged in, otherwise redirects them to the login page
+        """
         if "username" in request.session:
             return HttpResponseRedirect("/friends/")
         else:
