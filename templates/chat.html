@@ -138,16 +138,24 @@
         socket.close();
     });
 
+    /**
+     * Open a connection to the IndexedDB database
+     * @param {event} the object containing the incoming message.
+     * @returns {Promise<IDBDatabase>} the database object
+     */
     socket.onmessage = async function(event) {
         const message = JSON.parse(event.data);
 
+        // if the message is a new message, decrypt the message and add it to the message box
         if (message["type"] === "new_msg") {
             const sender = message["content"][0];
             const msg = new Uint8Array(message["content"][2]);
             const msgIv = new Uint8Array(message["content"][4]);
 
+            // obtain the Diffie-Hellman shared secret key with the sender of this message
             const symmetricKey = sharedSecretKeys[sender];
             
+            // attempt to decrypt the message, save it to the IndexedDB, and display it to the user
             try {
                 const decryptedContent = await decryptMessage(symmetricKey, msgIv, msg);
 
@@ -177,10 +185,13 @@
             }
         }
 
+        // check if a response was received from the server after sending a friend request to join a chat rooom
+        // in this case if the server sends a response, then that means that the friend request failed to send
         else if (message["type"] === "response") {
             alert(`${message["content"]}. No friend requests were sent.`);
         }
 
+        // if the user receives a message to update members, then update the list of members in the chat room
         else if (message["type"] === "update_members") {
             const res = await axios.get(`/members/${roomId}`);
             const members = res.data["message"];
@@ -206,6 +217,7 @@
             }
         }
 
+        // if the user receives a message to update the key, then derive new shared secret keys with all members in the chat room
         else if (message["type"] === "update_key") {
             const res = await axios.get(`/members/${roomId}`);
             const members = res.data["message"];
@@ -228,7 +240,8 @@
                 }
             }
         }
-
+        
+        // if the user receives a message that was broadcasted, then update the list of all friends who are online or offline
         else if (message["type"] === "broadcast") {
             const online_users = message["content"];
 
@@ -247,13 +260,19 @@
         }
     }
 
-    // scroll to the bottom of the messages
+    /**
+     * Scroll to the bottom of the message box to display the most recent messages
+     */
     function scrollToBottom() {
         const messageBox = document.getElementById("messageBox");
         messageBox.scrollTop = messageBox.scrollHeight;
     }
 
-    // send password to server to verify that it belongs to the user
+    /**
+     * Verify the user's password, then decrypt the user's private key and messages stored in IndexDB,
+     * and generate a new Diffie-Hellman key pair, before proceeding to display the chat room messages
+     * and allow the user to send their own messages
+     */
     async function verifyPassword() {
         const password = document.getElementById("password").value;
 
@@ -403,6 +422,7 @@
                 "public_key": Array.from(new Uint8Array(exported))
             });
 
+            // Inform everyone that the user has a new public key
             if (socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({"type": "pk_key_change"}));
             }
@@ -483,7 +503,10 @@
         }
     }
 
-    // add a user to a list of users that the room owner may add to the group chat
+    /**
+     * Add a user to a list of users that the room owner may add to the group chat
+     * @param {Event} event
+     */
     function addUser(event) {
         event.preventDefault();
         
@@ -513,7 +536,9 @@
         }
     }
 
-    // add all the users in the list of users to the group chat
+    /**
+     * Add all the users in the list of users to the group chat
+     */
     function addUsersToGroupChat() {
         const groupChatUsers = document.getElementById('groupUsers');
         const userListItems = groupChatUsers.getElementsByTagName("li");
@@ -533,7 +558,11 @@
         }
     }
 
-    // allow the owner to remove a current member from the group chat
+    /**
+     * Allow the owner to remove a current member from the group chat
+     * @param {number} id the roomId of the chat room where the user is to be removed
+     * @param {string} username the username of the user to be removed
+     */
     function removeUser(roomId, username) {
         if (socket.readyState === WebSocket.OPEN) {
             const confirmation = confirm(`Are you sure you want to remove ${username} from this chat room?`);
@@ -546,7 +575,11 @@
         }
     }
 
-    // remove yourself self from the group chat
+    /**
+     * Remove oneself the user from a chat room
+     * @param {Event} event
+     * @param {number} roomId the roomId of the chat room the user will be removed from
+     */
     function removeFriend(event, roomId) {
         if (socket.readyState === WebSocket.OPEN) {
             const confirmation = confirm("Are you sure you want to leave this chat room?");
@@ -563,7 +596,9 @@
         event.stopPropagation();
     }
 
-    // we'll send the message to the server by emitting a "send" event
+    /**
+     * Send a message to the server to be broadcasted to all users in the chat room
+     */
     async function send() {
         const messageElement = document.getElementById("writeMessage");
         const message = messageElement.value;
@@ -584,12 +619,18 @@
         }
     }
 
-    // send a join room event to the server to join the room specified in url
+    /**
+     * Send a join room event to the server to join the room specified in url
+     */
     async function join_room() {
         socket.send(JSON.stringify({"type": "join_room", "content": {"room_id": roomId}}));
     }
 
-    // function to add a message to the message box once a message has been received and decrypted
+    /**
+     * Add a message to the message box once a message has been received and decrypted
+     * @param {string} sender the sender of the message
+     * @param {string} message the content of the message
+     */
     function addMessage(sender, message) {
         const messageBox = document.getElementById("messageBox");
         

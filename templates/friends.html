@@ -137,6 +137,11 @@
 
     let onlineUsers;
 
+    /**
+     * Function to handle the click event on the "Friend Requests" tab.
+     * Upon clicking the tab, all friend requests that the user has sent and
+     * received will become visible.
+     */
     function clickFriendRequests() {
         const friends = document.getElementById("friends");
         const group = document.getElementById("group");
@@ -144,6 +149,10 @@
         group.style.display = "none";
     }
 
+    /**
+     * Function to handle the click event on the "Create a Group Chat" tab.
+     * Upon clicking the tab, the user will be able to create a new group chat.
+     */
     function clickGroupChat() {
         const friends = document.getElementById("friends");
         const group = document.getElementById("group");
@@ -151,6 +160,10 @@
         group.style.display = "block";
     }
 
+    /**
+     * Function to add a user to a list of users who may be invited into the group chat.
+     * @param {Event} event - The event object containing the user click event.
+     */
     function addUser(event) {
         event.preventDefault();
         
@@ -180,6 +193,11 @@
         }
     }
 
+    /** 
+     * Function to remove oneself from a chat room.
+     * @param {Event} event - The event object containing the user click event.
+     * @param {string} room_id - The id of the room that the user wants to leave.
+     */
     function removeFriend(event, room_id) {
         if (socket.readyState === WebSocket.OPEN) {
             const confirmation = confirm("Are you sure you want to leave this chat room?");
@@ -196,6 +214,13 @@
         event.stopPropagation();
     }
     
+    /**
+     * Function to accept a friend request.
+     * @param {Event} event - The event object containing the user click event.
+     * @param {string} sender - The username of the user who sent the friend request.
+     * @param {string} requestId - The id of the friend request.
+     * @param {string} roomId - The id of the room that the user wants to join.
+     */
     function acceptRequest(event, sender, requestId, roomId) {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({"type": "request_res", "content": {"request_id": parseInt(requestId), "status": 1}}));
@@ -220,6 +245,14 @@
         }
     }
 
+    /**
+     * Function to accept a group chat request.
+     * @param {Event} event - The event object containing the user click event.
+     * @param {string} sender - The username of the user who sent the group chat request.
+     * @param {string} requestId - The id of the group chat request.
+     * @param {string} roomId - The id of the room that the user wants to join.
+     * @param {string} roomName - The name of the group chat.
+     */
     function acceptRequestGroup(event, sender, requestId, roomId, roomName) {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({"type": "request_res", "content": {"request_id": parseInt(requestId), "status": 1}}));
@@ -243,6 +276,12 @@
         }
     }
 
+    /**
+     * Function to decline a friend request.
+     * @param {Event} event - The event object containing the user click event.
+     * @param {string} sender - The username of the user who sent the friend request.
+     * @param {string} requestId - The id of the friend request.
+     */
     function declineRequest(event, sender, requestId) {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({"type": "request_res", "content": {"request_id": parseInt(requestId), "status": 0}}));
@@ -254,6 +293,9 @@
         }
     }
 
+    /**
+     * Function to create a direct message chat room and send a friend request to the invited user.
+     */
     async function sendFriendRequest() {
         if (socket.readyState === WebSocket.OPEN) {
             const friendUsername = document.getElementById('friendUsername').value;
@@ -268,6 +310,9 @@
         }
     }
 
+    /**
+     * Function to create a group chat room and send a friend request to the invited users.
+     */
     function createGroupChat() {
         if (socket.readyState === WebSocket.OPEN) {
             const groupChatName = document.getElementById('groupName').value;
@@ -293,10 +338,16 @@
         }
     }
 
+    /**
+     * Function to handle incoming messages from the WebSocket.
+     * @param {Event} event the object containing the incoming message.
+     */
     socket.onmessage = function(event) {
         const message = JSON.parse(event.data);
 
+        // If the received message type is a response to the creation of a chat room, display the response to the user.
         if (message["type"] === 'response') {
+            // If the content of the message is an object, then the user was successful in creating a chat room.
             if (typeof(message["content"]) === "object") { 
                 const roomId = message["content"][0];
                 const receiver = message["content"][1];
@@ -305,6 +356,7 @@
 
                 const sentRequests = document.getElementById("sentRequestsList");
 
+                // Display a message indicating that invites to join the created chat room were sent to invited users.
                 if (roomType) {
                     sentRequests.innerHTML = `<li id="waiting_request_${roomId}"></li>` + sentRequests.innerHTML;
                     const newRequest = document.getElementById(`waiting_request_${roomId}`);
@@ -321,6 +373,7 @@
             }
         }
         
+        // If the received message type is a new request, then that means that the user received a new friend request.
         else if (message["type"] === 'new_request') {
             const sender = message["content"][0]
             const requestId = message["content"][1];
@@ -328,6 +381,7 @@
             const roomName = message["content"][3];
             const roomType = message["content"][4];
 
+            // Display the new friend request depending on whether it is a group chat or a direct message chat.
             if (!roomType) {
                 const receivedRequestsList = document.getElementById('receivedRequestsList');
 
@@ -364,6 +418,7 @@
             }
         }
 
+        // If the received message type is a update for a friend request sent by this user, update the display depending on the response.
         else if (message["type"] === "request_update") {
             const roomId = message["content"][0];
             const sender = message["content"][1];
@@ -373,11 +428,14 @@
 
             const request = document.getElementById(`waiting_request_${roomId}`);
 
+            // Check if the friend request was accepted
             if (newStatus === 1) {
+                // Remove the friend request from the list of sent requests
                 if (request) {
                     request.remove()
                 }
 
+                // Depending on the type of chat room, display the new chat room in the list of friends or groups
                 if (!roomType) {
                     const friends = document.getElementById("friendsList");
                     friends.innerHTML += `<li id="room_${roomId}" onclick="window.location.href='/chat/${roomId}'">
@@ -403,7 +461,8 @@
                     const group = document.getElementById(`room_${roomId}`);
                     group.querySelector("p").textContent = `${groupName}`;
                 }
-
+                
+                // For direct message chats, display which friends are online
                 onlineUsers.forEach(function(user) {
                     var statusElement = document.getElementById('status_' + user);
                     if (statusElement) {
@@ -422,6 +481,7 @@
             }
         }
 
+        // If the received message type is a broadcast, update the online/offline status of the users that the user is friends with.
         else if (message["type"] === "broadcast") {
             onlineUsers = message["content"];
 
