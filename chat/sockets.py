@@ -94,6 +94,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             text_data (str): the message received from the client
         """
         from users.models import AccountUser
+        from chat.models import ChatRoom
 
         message = json.loads(text_data)
         session = self.scope['session']
@@ -165,6 +166,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     except AccountUser.DoesNotExist:
                         await self.send(text_data=json.dumps({"type": "response", "content": f"user {username} does not exist"}))
                         return
+
+                # prevent chat room creation if a chat room with the provided group name already exists
+                try:    
+                    await self.get_chat_room_by_name(message["content"]["group_name"])
+                    await self.send(text_data=json.dumps({"type": "response", "content": f"chat room with name {message['content']['group_name']} already exists"}))
+                    return
+                except ChatRoom.DoesNotExist:
+                    pass
                     
                 group_name = message["content"]["group_name"]
                 room_type = message["content"]["room_type"]
@@ -478,6 +487,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """
         from .models import ChatRoom
         return ChatRoom.objects.get(pk=room_id)
+    
+    @database_sync_to_async
+    def get_chat_room_by_name(self, name):
+        """
+        Retrieve a chat room object from the database using the provided chat name.
+
+        args:
+            name (str): the name of the chat room used to retrieve the chat room object from the database
+
+        returns:
+            ChatRoom: the chat room object retrieved from the database
+        """
+        from .models import ChatRoom
+        return ChatRoom.objects.get(name=name)
     
     @database_sync_to_async
     def create_chat_room(self, group_name, room_type, user):

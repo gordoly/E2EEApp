@@ -361,6 +361,17 @@
                     sentRequests.innerHTML = `<li id="waiting_request_${roomId}"></li>` + sentRequests.innerHTML;
                     const newRequest = document.getElementById(`waiting_request_${roomId}`);
                     newRequest.textContent = `Request to join group chat ${groupName} sent to ${receiver}`;
+
+                    const groups = document.getElementById("groupsList");
+                    groups.innerHTML += `<li class="group-list" id="room_${roomId}" onclick="window.location.href='/chat/${roomId}'">
+                        <p style="display: inline;"></p>
+                        <br>
+                        <button class="danger" onclick="removeFriend(event, '${roomId}')">Leave Chat</button>
+                        <br>
+                    </li>`;
+                    
+                    const group = document.getElementById(`room_${roomId}`);
+                    group.querySelector("p").textContent = `${groupName}`;
                 }
                 else {
                     sentRequests.innerHTML = `<li id="waiting_request_${roomId}"></li>` + sentRequests.innerHTML;
@@ -435,7 +446,7 @@
                     request.remove()
                 }
 
-                // Depending on the type of chat room, display the new chat room in the list of friends or groups
+                // If the chat room is a direct message chat, display the new chat room in the list of friends
                 if (!roomType) {
                     const friends = document.getElementById("friendsList");
                     friends.innerHTML += `<li id="room_${roomId}" onclick="window.location.href='/chat/${roomId}'">
@@ -448,18 +459,6 @@
 
                     const friend = document.getElementById(`room_${roomId}`);
                     friend.querySelector("p").textContent = `${sender}`
-                }
-                else {
-                    const groups = document.getElementById("groupsList");
-                    groups.innerHTML += `<li class="group-list" id="room_${roomId}" onclick="window.location.href='/chat/${roomId}'">
-                        <p style="display: inline;"></p>
-                        <br>
-                        <button class="danger" onclick="removeFriend(event, '${roomId}')">Leave Chat</button>
-                        <br>
-                    </li>`;
-                    
-                    const group = document.getElementById(`room_${roomId}`);
-                    group.querySelector("p").textContent = `${groupName}`;
                 }
                 
                 // For direct message chats, display which friends are online
