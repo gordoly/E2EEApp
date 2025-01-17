@@ -2,9 +2,19 @@
 
 ## About
 
-This project is an end-to-end encrypted chat application designed to ensure that messages sent between two users are encrypted such that not even the server can read these messages. This project utilises the Django framework to develop the server which handles web requests and socket messages from clients, while Jinja was used to render the front end templates. A Sqlite database is used to store user accounts, the chat rooms the users of part of, and friend requests sent between users.
+This project is an end-to-end encrypted chat application designed to ensure that messages sent between two users are encrypted such that not even the server can read these messages. This project utilises the Django framework to develop the server which handles web requests and socket messages from clients, while Jinja was used to render the front end templates. A Sqlite database is used to store user accounts, the chat rooms the users of part of, and friend requests sent between users. Users can also communicate directly with one another or inside a group chat with multiple users.
 
-The application manages the usage of Diffie-Hellman keys which are used to encrypt and decrypt messages sent between users. The application encrypts, using PBKDF2 keys which are derived from the user's password, the user's Diffie-Hellman cryptographic keys and message histories. These are then stored locally on the user's browser using IndexDB. Messages are only stored on the server if the receiver is offline, however, once the receiver is able to receive messages, the stored messages will be removed from the server's database.
+## Security Features
+
+- User passwords are stored hashed and salted on the database.
+- A password policy is enforced to ensure users only use strong passwords which are not easy to guess.
+- Each user generates a Diffie-Hellman key pair on the client side, using the Web Crypto API.
+- Users in the same chat room perform a Diffie-Hellman key exchange to securely derive a shared secret between each pair of users, ensuring that the server cannot decrypt messages.
+- Messages are encrypted using AES-GCM with the shared secret, ensuring both confidentiality and integrity of the messages.
+- Message histories are not stored on the server. If a user is offline, messages for them are temporarily stored and deleted upon delivery. These messages are encrypted while stored on the server.
+- The user's Diffie-Hellman secret and message histories are all stored on the user's browser using IndexDB.
+- A PBKDF2 key is derived from the user's password which is used to encrypt all data stored within IndexDB. The user's password is only ever obtained via user input.
+- When a user returns online and retrieves stored messages, a new Diffie-Hellman key pair is generated to maintain forward secrecy.
 
 ## Installation
 
